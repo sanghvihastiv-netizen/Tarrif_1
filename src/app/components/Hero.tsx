@@ -20,17 +20,17 @@ export default function Hero() {
 
 
         <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6">
-          Trade Smarter.
+          Choose Smarter.
           <br />
           <span className="bg-gradient-to-r from-amber-400 to-amber-600 bg-clip-text text-transparent">
-            Survive the Tariff Wars.
+            Pick the most reliable route.
           </span>
         </h1>
 
 
         <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-10">
-          Model global manufacturing, tariffs, logistics disruptions, and geopolitical shocks
-          to understand their impact on profitability.
+          Compare shipping lines by reliability, delay history, disruption risk, transit time,
+          and total trip cost so you can make stronger routing decisions.
         </p>
 
 
@@ -54,15 +54,15 @@ export default function Hero() {
         <div className="flex flex-wrap justify-center gap-8 md:gap-12 pt-8 border-t border-white/10">
           <div className="text-center">
             <div className="text-2xl md:text-3xl font-bold text-amber-400">50+</div>
-            <div className="text-xs text-gray-500">Trade Lanes</div>
+            <div className="text-xs text-gray-500">Routes Monitored</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl md:text-3xl font-bold text-amber-400">8</div>
-            <div className="text-xs text-gray-500">Hubs</div>
+            <div className="text-2xl md:text-3xl font-bold text-amber-400">24/7</div>
+            <div className="text-xs text-gray-500">Delay Watch</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl md:text-3xl font-bold text-amber-400">10</div>
-            <div className="text-xs text-gray-500">Shock Models</div>
+            <div className="text-2xl md:text-3xl font-bold text-amber-400">10+</div>
+            <div className="text-xs text-gray-500">Risk Signals</div>
           </div>
         </div>
       </div>

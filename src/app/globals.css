@@ -27,3 +27,36 @@ body {
 .animate-marquee {
   animation: marquee 30s linear infinite;
 }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ... existing styles ... */
+
+/* 3D Globe specific styles */
+canvas {
+  display: block;
+}
+
+/* Smooth scrolling for schedules page */
+.schedules-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.schedules-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.schedules-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.schedules-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.schedules-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

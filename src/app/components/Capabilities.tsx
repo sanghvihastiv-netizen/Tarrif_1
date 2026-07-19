@@ -4,23 +4,23 @@
 export default function Capabilities() {
   const capabilities = [
     {
-      title: 'Manufacturing Hub Modeling',
-      description: 'Compare 8 production geographies across labor, energy, logistics, and tax incentives.',
-      icon: '🏭',
+      title: 'Carrier Reliability Scoring',
+      description: 'Compare carriers by on-time performance, delay history, and disruption exposure before booking a lane.',
+      icon: '📈',
     },
     {
-      title: 'Geopolitical Shock Simulation',
-      description: 'Inject sanctions, wars, embargoes, and chokepoint closures into your supply graph.',
+      title: 'Route Risk Intelligence',
+      description: 'Track port congestion, weather, strikes, sanctions, and other events that can slow a voyage.',
       icon: '🌍',
     },
     {
-      title: 'Tariff Pass-through Engine',
-      description: 'Model cost impacts across tiers, suppliers, and final pricing strategies.',
-      icon: '📊',
+      title: 'Transit vs Cost Decisioning',
+      description: 'Weigh transit time, surcharges, and total trip cost side by side to protect service levels and margin.',
+      icon: '⚖️',
     },
     {
-      title: 'Chokepoint Risk Monitor',
-      description: 'Track critical maritime chokepoints and get early disruption warnings.',
+      title: 'Shipping Line Event Watch',
+      description: 'Monitor schedules, service alerts, and future disruptions that could change the reliability of a route.',
       icon: '🚢',
     },
   ];
@@ -34,10 +34,10 @@ export default function Capabilities() {
             Capabilities
           </div>
           <h2 className="text-3xl md:text-5xl font-bold mb-4">
-            A war room for <span className="text-amber-400">global trade</span>
+            A command center for <span className="text-amber-400">route decisions</span>
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            Institutional-grade modeling — built for operators, not analysts.
+            Decision support built for operators who need reliable shipping options, not just raw pricing data.
           </p>
         </div>
 
@@ -60,24 +60,24 @@ export default function Capabilities() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8">
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">💰</div>
+            <div className="text-2xl">⏱️</div>
             <div>
-              <div className="text-sm font-medium">Cost per kt</div>
-              <div className="text-xs text-gray-500">Dynamic freight modeling</div>
+              <div className="text-sm font-medium">Transit Time</div>
+              <div className="text-xs text-gray-500">Compare route duration at a glance</div>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">🔌</div>
+            <div className="text-2xl">🚨</div>
             <div>
-              <div className="text-sm font-medium">Shock API</div>
-              <div className="text-xs text-gray-500">Programmatic triggers</div>
+              <div className="text-sm font-medium">Delay Alerts</div>
+              <div className="text-xs text-gray-500">Live disruption monitoring</div>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">⚠️</div>
+            <div className="text-2xl">📦</div>
             <div>
-              <div className="text-sm font-medium">Risk Heatmap</div>
-              <div className="text-xs text-gray-500">67.0% risk-weighted</div>
+              <div className="text-sm font-medium">Trip Economics</div>
+              <div className="text-xs text-gray-500">Reliability + price + time in one view</div>
             </div>
           </div>
         </div>

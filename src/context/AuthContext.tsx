@@ -1,7 +1,21 @@
 'use client';
 
+
 import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  GithubAuthProvider,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  updateProfile,
+  type User,
+} from 'firebase/auth';
+import { firebaseAuth } from '../lib/firebase';
 import type { AuthUser } from '../lib/auth';
+
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -13,112 +27,59 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function getStoredUser() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
 
-  const storedUser = window.localStorage.getItem('tariff-user');
-  if (!storedUser) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(storedUser) as AuthUser;
-  } catch {
-    window.localStorage.removeItem('tariff-user');
-    return null;
-  }
+function toAuthUser(user: User): AuthUser {
+  return {
+    id: user.uid,
+    email: user.email,
+    displayName: user.displayName || user.email?.split('@')[0] || 'User',
+  };
 }
+
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const storedUser = getStoredUser();
-    setUser(storedUser);
-    setLoading(false);
-  }, []);
 
-  const persistUser = (nextUser: AuthUser | null) => {
-    setUser(nextUser);
-    if (typeof window !== 'undefined') {
-      if (nextUser) {
-        window.localStorage.setItem('tariff-user', JSON.stringify(nextUser));
-      } else {
-        window.localStorage.removeItem('tariff-user');
-      }
-    }
-  };
+  useEffect(() => onAuthStateChanged(firebaseAuth, (firebaseUser) => {
+    setUser(firebaseUser ? toAuthUser(firebaseUser) : null);
+    setLoading(false);
+  }), []);
+
 
   const signInWithGoogle = async () => {
-    const demoUser = {
-      id: 0,
-      email: 'demo.google@example.com',
-      displayName: 'Google User',
-    };
-    persistUser(demoUser);
+    await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
   };
+
 
   const signInWithGithub = async () => {
-    const demoUser = {
-      id: 0,
-      email: 'demo.github@example.com',
-      displayName: 'GitHub User',
-    };
-    persistUser(demoUser);
+    await signInWithPopup(firebaseAuth, new GithubAuthProvider());
   };
+
 
   const signInWithEmail = async (email: string, password: string) => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const text = await response.text();
-    let data: any = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error('Unexpected server response');
-    }
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Invalid email or password');
-    }
-
-    persistUser(data.user as AuthUser);
+    await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
   };
+
 
   const signUpWithEmail = async (email: string, password: string, displayName?: string) => {
-    const response = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, displayName }),
-    });
-
-    const text = await response.text();
-    let data: any = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error('Unexpected server response');
+    const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+    const name = displayName?.trim();
+    if (name) {
+      await updateProfile(credential.user, { displayName: name });
+      setUser(toAuthUser(credential.user));
     }
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to create account');
-    }
-
-    persistUser(data.user as AuthUser);
   };
+
 
   const signOut = async () => {
-    persistUser(null);
+    await firebaseSignOut(firebaseAuth);
   };
+
 
   return (
     <AuthContext.Provider value={{
@@ -128,12 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGithub,
       signInWithEmail,
       signUpWithEmail,
-      signOut
+      signOut,
     }}>
       {children}
     </AuthContext.Provider>
   );
 }
+
 
 export function useAuth() {
   const context = useContext(AuthContext);
@@ -142,3 +104,6 @@ export function useAuth() {
   }
   return context;
 }
+
+
+

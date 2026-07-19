@@ -22,7 +22,7 @@ export default function SignUpPage() {
 
   useEffect(() => {
     if (user && !authLoading) {
-      router.push('/');
+      router.push('/schedules');
     }
   }, [user, authLoading, router]);
 
@@ -50,7 +50,10 @@ export default function SignUpPage() {
 
     try {
       await signUpWithEmail(email, password, name);
-      router.push('/');
+      // Redirect to schedules after successful signup
+      setTimeout(() => {
+        router.push('/schedules');
+      }, 100);
     } catch (err: any) {
       console.error('Sign up error:', err);
       setError(err.message || 'Failed to create account');
@@ -64,7 +67,9 @@ export default function SignUpPage() {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push('/');
+      setTimeout(() => {
+        router.push('/schedules');
+      }, 100);
     } catch (err: any) {
       console.error('Google sign up error:', err);
       setError('Failed to sign up with Google');
@@ -78,7 +83,9 @@ export default function SignUpPage() {
     setLoading(true);
     try {
       await signInWithGithub();
-      router.push('/');
+      setTimeout(() => {
+        router.push('/schedules');
+      }, 100);
     } catch (err: any) {
       console.error('Github sign up error:', err);
       setError('Failed to sign up with GitHub');

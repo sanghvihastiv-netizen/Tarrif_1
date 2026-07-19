@@ -1,18 +1,134 @@
 import { NextResponse } from 'next/server';
 
+const defaultHeadlines = [
+  {
+    title: 'Trade dynamics shifting in 2026',
+    source: 'Reuters',
+    category: 'trade',
+    url: 'https://www.reuters.com/world/'
+  },
+  {
+    title: 'Supply chain resilience becomes key priority',
+    source: 'Logistics Today',
+    category: 'supplychain',
+    url: 'https://www.logisticstoday.com/'
+  },
+  {
+    title: 'Shipping routes face new challenges',
+    source: 'Maritime Executive',
+    category: 'shipping',
+    url: 'https://maritime-executive.com/'
+  },
+  {
+    title: 'Tariff negotiations impact global markets',
+    source: 'Financial Times',
+    category: 'tariff',
+    url: 'https://www.ft.com/'
+  },
+  {
+    title: 'Nearshoring trends accelerate in manufacturing',
+    source: 'Industry Week',
+    category: 'trade',
+    url: 'https://www.industryweek.com/'
+  }
+];
+
+function inferCategory(title: string) {
+  const normalized = title.toLowerCase();
+
+  if (/tariff|trade policy|negotiat|duties/i.test(normalized)) {
+    return 'tariff';
+  }
+
+  if (/ship|port|route|suez|panama|maritime|container|vessel|congestion/i.test(normalized)) {
+    return 'shipping';
+  }
+
+  if (/supply chain|resilien|manufactur|inventory|logistics|warehouse/i.test(normalized)) {
+    return 'supplychain';
+  }
+
+  return 'trade';
+}
+
+async function fetchTavilyHeadlines() {
+  const tavilyApiKey = process.env.TAVILY_API_KEY;
+
+  if (!tavilyApiKey) {
+    console.warn('⚠️ Tavily API key not found; using fallback headlines');
+    return defaultHeadlines;
+  }
+
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: tavilyApiKey,
+        query: 'latest global trade shipping tariffs supply chain disruptions news',
+        search_depth: 'basic',
+        max_results: 5,
+        include_domains: [
+          'reuters.com',
+          'ft.com',
+          'bloomberg.com',
+          'wsj.com',
+          'maritime-executive.com',
+          'theloadstar.com',
+          'shippingwatch.com'
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('❌ Tavily API error:', errorData);
+      return defaultHeadlines;
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+
+    return results.slice(0, 5).map((result: any, index: number) => ({
+      title: result.title || `Trade update ${index + 1}`,
+      source: result.source || result.url?.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] || 'Tavily',
+      category: inferCategory(result.title || ''),
+      url: result.url || defaultHeadlines[index % defaultHeadlines.length].url
+    }));
+  } catch (error) {
+    console.error('❌ Tavily request failed:', error);
+    return defaultHeadlines;
+  }
+}
+
 export async function GET() {
   console.log('========================================');
-  console.log('📡 [Gemini Trade News] Request started');
+  console.log('📡 [Trade News] Request started');
   console.log('========================================');
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  
-  if (!apiKey) {
-    console.error('❌ Gemini API key not found');
-    return NextResponse.json(
-      { error: 'Gemini API key not configured' },
-      { status: 500 }
-    );
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const tavilyHeadlines = await fetchTavilyHeadlines();
+
+  if (!geminiApiKey) {
+    console.warn('⚠️ Gemini API key not found; using fallback metrics with Tavily headlines');
+    return NextResponse.json({
+      tariffIndex: 147.3,
+      supplyChainIndex: 86.2,
+      nearshoringIndex: 2340,
+      chokepointRisk: 'MEDIUM',
+      alertText: 'Global trade monitoring active - using AI fallback',
+      headlines: tavilyHeadlines,
+      summary: 'Global trade landscape showing mixed signals with ongoing adjustments to supply chains and trade policies.',
+      keyRisks: ['Trade tensions', 'Supply chain disruptions', 'Geopolitical uncertainty'],
+      opportunities: ['Nearshoring', 'Trade diversification', 'Digital trade'],
+      lastUpdated: new Date().toISOString(),
+      _debug: {
+        source: 'fallback',
+        tavilyUsed: tavilyHeadlines.length > 0
+      }
+    });
   }
 
   try {
@@ -47,7 +163,7 @@ Based on your knowledge of:
 
 Use realistic current data and trends. Make it feel like a live intelligence update.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiApiKey}`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -102,13 +218,7 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
         nearshoringIndex: 2300 + Math.floor(Math.random() * 200),
         chokepointRisk: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'][Math.floor(Math.random() * 4)],
         alertText: 'Global trade monitoring active',
-        headlines: [
-          { title: 'Trade dynamics shifting in 2026', source: 'Trade Monitor', category: 'trade' },
-          { title: 'Supply chain resilience prioritized', source: 'Logistics Today', category: 'supplychain' },
-          { title: 'Shipping routes face new challenges', source: 'Maritime News', category: 'shipping' },
-          { title: 'Tariff negotiations ongoing', source: 'Financial Times', category: 'tariff' },
-          { title: 'Nearshoring trends accelerate', source: 'Industry Week', category: 'trade' },
-        ],
+        headlines: tavilyHeadlines,
         summary: text.substring(0, 200) || 'Global trade landscape showing mixed signals with ongoing adjustments to supply chains and trade policies.',
         keyRisks: ['Trade tensions', 'Supply chain disruptions', 'Geopolitical uncertainty'],
         opportunities: ['Nearshoring', 'Trade diversification', 'Digital trade'],
@@ -127,10 +237,10 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
       nearshoringIndex: parsedData.nearshoringIndex || 2340,
       chokepointRisk: parsedData.chokepointRisk || 'MEDIUM',
       alertText: parsedData.alertText || 'Global trade monitoring active',
-      headlines: parsedData.headlines?.slice(0, 5) || [
-        { title: 'Trade dynamics shifting in 2026', source: 'Trade Monitor', category: 'trade' },
-        { title: 'Supply chain resilience prioritized', source: 'Logistics Today', category: 'supplychain' },
-      ],
+      headlines: (parsedData.headlines?.slice(0, 5) || tavilyHeadlines).map((headline: any, index: number) => ({
+        ...headline,
+        url: headline.url || tavilyHeadlines[index]?.url || defaultHeadlines[index % defaultHeadlines.length].url
+      })),
       summary: parsedData.summary || 'Global trade landscape showing mixed signals.',
       keyRisks: parsedData.keyRisks || ['Trade tensions', 'Supply chain disruptions'],
       opportunities: parsedData.opportunities || ['Nearshoring', 'Trade diversification'],
@@ -162,13 +272,7 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
       nearshoringIndex: 2340,
       chokepointRisk: 'MEDIUM',
       alertText: 'Global trade monitoring active - using AI fallback',
-      headlines: [
-        { title: 'Trade dynamics shifting in 2026', source: 'Trade Monitor', category: 'trade' },
-        { title: 'Supply chain resilience becomes key priority', source: 'Logistics Today', category: 'supplychain' },
-        { title: 'Shipping routes face new challenges', source: 'Maritime News', category: 'shipping' },
-        { title: 'Tariff negotiations impact global markets', source: 'Financial Times', category: 'tariff' },
-        { title: 'Nearshoring trends accelerate in manufacturing', source: 'Industry Week', category: 'trade' },
-      ],
+      headlines: tavilyHeadlines,
       summary: 'Global trade landscape showing mixed signals with ongoing adjustments to supply chains and trade policies.',
       keyRisks: ['Trade tensions', 'Supply chain disruptions', 'Geopolitical uncertainty'],
       opportunities: ['Nearshoring', 'Trade diversification', 'Digital trade'],

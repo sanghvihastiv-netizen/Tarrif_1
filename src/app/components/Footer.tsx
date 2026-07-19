@@ -10,7 +10,7 @@ export default function Footer() {
             <div className="text-xl font-bold tracking-tight mb-2">
               Tariff<span className="text-amber-500">Wars</span>
             </div>
-            <p className="text-xs text-gray-500">Live trade intelligence engine</p>
+            <p className="text-xs text-gray-500">Live shipping intelligence engine</p>
           </div>
 
 
@@ -20,7 +20,7 @@ export default function Footer() {
               <li><a href="#" className="hover:text-white transition">Simulator</a></li>
               <li><a href="#" className="hover:text-white transition">Scenarios</a></li>
               <li><a href="#" className="hover:text-white transition">API</a></li>
-              <li><a href="#" className="hover:text-white transition">Pricing</a></li>
+              <li><a href="#" className="hover:text-white transition">Reliability</a></li>
             </ul>
           </div>
 

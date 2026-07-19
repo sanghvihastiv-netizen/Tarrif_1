@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user && !authLoading) {
-      router.push('/');
+      router.push('/schedules');
     }
   }, [user, authLoading, router]);
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
 
     try {
       await signInWithEmail(email, password);
-      router.push('/');
+      router.push('/schedules');
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'Failed to sign in');
@@ -43,7 +43,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push('/');
+      router.push('/schedules');
     } catch (err: any) {
       console.error('Google login error:', err);
       setError('Failed to sign in with Google');
@@ -57,7 +57,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithGithub();
-      router.push('/');
+      router.push('/schedules');
     } catch (err: any) {
       console.error('Github login error:', err);
       setError('Failed to sign in with GitHub');

@@ -2,14 +2,14 @@
 
 
 const hubs = [
-  { name: 'China', labor: '$6.50/hr', flag: '🇨🇳', specialties: ['Scale & infrastructure', 'Skilled labor pool'] },
-  { name: 'India', labor: '$2.10/hr', flag: '🇮🇳', specialties: ['China+1 hedge', 'IT integration'] },
-  { name: 'Vietnam', labor: '$3.00/hr', flag: '🇻🇳', specialties: ['China+1 hedge', 'Electronics'] },
-  { name: 'Bangladesh', labor: '$1.40/hr', flag: '🇧🇩', specialties: ['Lowest textile cost', 'Garments'] },
-  { name: 'Mexico', labor: '$4.80/hr', flag: '🇲🇽', specialties: ['USMCA nearshoring', 'Auto parts'] },
-  { name: 'UAE', labor: '$7.20/hr', flag: '🇦🇪', specialties: ['Logistics gateway', 'Energy hub'] },
-  { name: 'Germany', labor: '$48.00/hr', flag: '🇩🇪', specialties: ['Precision engineering', 'Auto'] },
-  { name: 'USA', labor: '$32.00/hr', flag: '🇺🇸', specialties: ['IRA & CHIPS subsidies', 'Tech'] },
+  { name: 'Singapore', profile: 'High service density', flag: '🇸🇬', specialties: ['Transshipment hub', 'Frequent departures'] },
+  { name: 'Rotterdam', profile: 'North Europe gateway', flag: '🇳🇱', specialties: ['Strong liner coverage', 'Port congestion watch'] },
+  { name: 'Dubai', profile: 'Middle East connector', flag: '🇦🇪', specialties: ['Strategic rerouting', 'Fast feeder access'] },
+  { name: 'Los Angeles', profile: 'West Coast entry point', flag: '🇺🇸', specialties: ['Rail inland access', 'Delay-sensitive routes'] },
+  { name: 'Shanghai', profile: 'Global export anchor', flag: '🇨🇳', specialties: ['Massive cargo flow', 'Capacity volatility'] },
+  { name: 'Mumbai', profile: 'South Asia gateway', flag: '🇮🇳', specialties: ['Regional feeder links', 'Service variability'] },
+  { name: 'Ho Chi Minh City', profile: 'Southeast Asia node', flag: '🇻🇳', specialties: ['Emerging export lane', 'Weather exposure'] },
+  { name: 'Mexico City', profile: 'Nearshoring corridor', flag: '🇲🇽', specialties: ['Cross-border timing', 'Intermodal complexity'] },
 ];
 
 
@@ -22,10 +22,10 @@ export default function HubsShowcase() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            Manufacturing <span className="text-amber-400">Hubs</span>
+            Shipping <span className="text-amber-400">Hubs</span>
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            Where the world makes things — eight production geographies, calibrated with live labor and trade data.
+            Major gateways and service nodes where reliability, transit time, and delay risk are shaped every day.
           </p>
         </div>
 
@@ -43,7 +43,7 @@ export default function HubsShowcase() {
                 </div>
               </div>
               <h3 className="text-lg font-bold mb-1">{hub.name}</h3>
-              <p className="text-2xl font-bold text-amber-400 mb-3">{hub.labor}</p>
+              <p className="text-2xl font-bold text-amber-400 mb-3">{hub.profile}</p>
               <div className="space-y-1.5">
                 {hub.specialties.map((spec, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs text-gray-300">

@@ -14,20 +14,20 @@ export default function CTASection() {
 
 
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            Ready to stress-test your supply chain?
+            Ready to choose the most reliable shipping line?
           </h2>
           <p className="text-gray-400 mb-8 max-w-lg mx-auto">
-            Join 500+ supply chain leaders using Tariff Wars to navigate volatility and protect margins.
+            Compare carrier reliability, delay history, transit time, and trip cost to make better routing decisions.
           </p>
 
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button className="group bg-amber-500 hover:bg-amber-600 text-black px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition">
-              Start Simulating Free
+              Compare Routes
               <span className="group-hover:translate-x-1 transition">→</span>
             </button>
             <button className="border border-white/20 hover:bg-white/5 px-6 py-3 rounded-lg font-semibold transition">
-              Schedule Demo
+              See How It Works
             </button>
           </div>
 
