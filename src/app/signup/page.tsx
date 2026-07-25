@@ -1,10 +1,12 @@
 'use client';
 
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Mail, Lock, User, GitBranch, Globe } from 'lucide-react';
+
 
 export default function SignUpPage() {
   const [name, setName] = useState('');
@@ -16,19 +18,22 @@ export default function SignUpPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
-  
+ 
   const { signUpWithEmail, signInWithGoogle, signInWithGithub, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
+
   useEffect(() => {
     if (user && !authLoading) {
-      router.push('/schedules');
+      router.replace('/costs');
     }
   }, [user, authLoading, router]);
+
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
 
     // Validation
     if (password.length < 6) {
@@ -36,24 +41,25 @@ export default function SignUpPage() {
       return;
     }
 
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
+
 
     if (!agreeTerms) {
       setError('Please agree to the Terms of Service');
       return;
     }
 
+
     setLoading(true);
+
 
     try {
       await signUpWithEmail(email, password, name);
-      // Redirect to schedules after successful signup
-      setTimeout(() => {
-        router.push('/schedules');
-      }, 100);
+      router.replace('/schedules');
     } catch (err: any) {
       console.error('Sign up error:', err);
       setError(err.message || 'Failed to create account');
@@ -62,14 +68,13 @@ export default function SignUpPage() {
     }
   };
 
+
   const handleGoogleSignUp = async () => {
     setError('');
     setLoading(true);
     try {
       await signInWithGoogle();
-      setTimeout(() => {
-        router.push('/schedules');
-      }, 100);
+      router.replace('/schedules');
     } catch (err: any) {
       console.error('Google sign up error:', err);
       setError('Failed to sign up with Google');
@@ -78,14 +83,13 @@ export default function SignUpPage() {
     }
   };
 
+
   const handleGithubSignUp = async () => {
     setError('');
     setLoading(true);
     try {
       await signInWithGithub();
-      setTimeout(() => {
-        router.push('/schedules');
-      }, 100);
+      router.replace('/schedules');
     } catch (err: any) {
       console.error('Github sign up error:', err);
       setError('Failed to sign up with GitHub');
@@ -94,6 +98,7 @@ export default function SignUpPage() {
     }
   };
 
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -101,6 +106,7 @@ export default function SignUpPage() {
       </div>
     );
   }
+
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center px-4 py-8">
@@ -114,12 +120,14 @@ export default function SignUpPage() {
           <p className="text-gray-400 text-sm mt-2">Join the trade intelligence revolution</p>
         </div>
 
+
         {/* Error Message */}
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-3 mb-4">
             {error}
           </div>
         )}
+
 
         {/* Sign Up Form */}
         <form onSubmit={handleSignUp} className="space-y-4">
@@ -140,6 +148,7 @@ export default function SignUpPage() {
             </div>
           </div>
 
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Email Address
@@ -156,6 +165,7 @@ export default function SignUpPage() {
               />
             </div>
           </div>
+
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -182,6 +192,7 @@ export default function SignUpPage() {
             </div>
           </div>
 
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Confirm Password
@@ -207,6 +218,7 @@ export default function SignUpPage() {
             </div>
           </div>
 
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -227,6 +239,7 @@ export default function SignUpPage() {
             </label>
           </div>
 
+
           <button
             type="submit"
             disabled={loading}
@@ -235,6 +248,7 @@ export default function SignUpPage() {
             {loading ? 'Creating account...' : 'Create Account'}
           </button>
         </form>
+
 
         {/* Divider */}
         <div className="relative my-6">
@@ -245,6 +259,7 @@ export default function SignUpPage() {
             <span className="px-4 bg-black text-gray-500">Or continue with</span>
           </div>
         </div>
+
 
         {/* Social Sign Up */}
         <div className="grid grid-cols-2 gap-3">
@@ -266,6 +281,7 @@ export default function SignUpPage() {
           </button>
         </div>
 
+
         {/* Login Link */}
         <p className="text-center text-sm text-gray-400 mt-6">
           Already have an account?{' '}
@@ -277,3 +293,6 @@ export default function SignUpPage() {
     </div>
   );
 }
+
+
+

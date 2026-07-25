@@ -131,6 +131,12 @@ export default function Header() {
           </div>
         )}
       </div>
+      <nav className="hidden md:flex space-x-8">
+  <Link href="/" className="text-gray-300 hover:text-white transition text-sm">Home</Link>
+  <Link href="/simulator" className="text-gray-300 hover:text-white transition text-sm">Simulator</Link>
+  <Link href="/scenarios" className="text-gray-300 hover:text-white transition text-sm">Scenarios</Link>
+  <Link href="/schedules" className="text-gray-300 hover:text-white transition text-sm">Schedules</Link>
+</nav>
     </header>
   );
 }

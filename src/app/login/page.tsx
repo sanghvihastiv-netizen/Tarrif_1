@@ -1,10 +1,12 @@
 'use client';
 
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Mail, Lock, GitBranch, Globe } from 'lucide-react';
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,24 +14,27 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
+ 
   const { signInWithEmail, signInWithGoogle, signInWithGithub, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
+
   useEffect(() => {
     if (user && !authLoading) {
-      router.push('/schedules');
+      router.replace('/costs');
     }
   }, [user, authLoading, router]);
+
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+
     try {
       await signInWithEmail(email, password);
-      router.push('/schedules');
+      router.replace('/costs');
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'Failed to sign in');
@@ -38,12 +43,13 @@ export default function LoginPage() {
     }
   };
 
+
   const handleGoogleLogin = async () => {
     setError('');
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push('/schedules');
+      router.replace('/schedules');
     } catch (err: any) {
       console.error('Google login error:', err);
       setError('Failed to sign in with Google');
@@ -52,12 +58,13 @@ export default function LoginPage() {
     }
   };
 
+
   const handleGithubLogin = async () => {
     setError('');
     setLoading(true);
     try {
       await signInWithGithub();
-      router.push('/schedules');
+      router.replace('/schedules');
     } catch (err: any) {
       console.error('Github login error:', err);
       setError('Failed to sign in with GitHub');
@@ -66,6 +73,7 @@ export default function LoginPage() {
     }
   };
 
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -73,6 +81,7 @@ export default function LoginPage() {
       </div>
     );
   }
+
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center px-4">
@@ -86,12 +95,14 @@ export default function LoginPage() {
           <p className="text-gray-400 text-sm mt-2">Sign in to access your trade intelligence</p>
         </div>
 
+
         {/* Error Message */}
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-3 mb-4">
             {error}
           </div>
         )}
+
 
         {/* Login Form */}
         <form onSubmit={handleEmailLogin} className="space-y-4">
@@ -111,6 +122,7 @@ export default function LoginPage() {
               />
             </div>
           </div>
+
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -137,6 +149,7 @@ export default function LoginPage() {
             </div>
           </div>
 
+
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-gray-400">
               <input type="checkbox" className="rounded border-white/20 bg-white/5" />
@@ -147,6 +160,7 @@ export default function LoginPage() {
             </Link>
           </div>
 
+
           <button
             type="submit"
             disabled={loading}
@@ -155,6 +169,7 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+
 
         {/* Divider */}
         <div className="relative my-6">
@@ -165,6 +180,7 @@ export default function LoginPage() {
             <span className="px-4 bg-black text-gray-500">Or continue with</span>
           </div>
         </div>
+
 
         {/* Social Login */}
         <div className="grid grid-cols-2 gap-3">
@@ -186,6 +202,7 @@ export default function LoginPage() {
           </button>
         </div>
 
+
         {/* Sign Up Link */}
         <p className="text-center text-sm text-gray-400 mt-6">
           Don't have an account?{' '}
@@ -197,3 +214,6 @@ export default function LoginPage() {
     </div>
   );
 }
+
+
+
