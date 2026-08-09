@@ -1,4 +1,8 @@
-import { db } from './database';
+import 'server-only';
+
+import crypto from 'crypto';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { firestore } from './firebase-admin';
 
 export type TaxRuleEntry = {
   name: string;
@@ -26,7 +30,6 @@ export type TaxCalculationResult = {
 
 export const SUPPORTED_TAX_TYPES = ['duty', 'tax', 'fee'] as const;
 export const MAX_TAX_RULES = 20;
-export const DEFAULT_WARNING = 'The latest tax rates could not be extracted. Estimated default rates were used. You can enter the latest rates manually and recalculate.';
 export const STORED_WARNING = 'The latest tax rates could not be extracted. This calculation uses previously stored rates. Please verify them before making financial decisions.';
 
 export function normalizeCountry(country: string) {
@@ -39,107 +42,106 @@ export function normalizeHsCode(hsCode: string) {
 
 export function normalizeRate(rate: unknown): number | null {
   if (typeof rate !== 'number' && typeof rate !== 'string') return null;
+  if (typeof rate === 'string' && !rate.trim()) return null;
   const text = typeof rate === 'string' ? rate.trim().replace(/%$/, '') : rate;
   const numeric = Number(text);
-  if (!Number.isFinite(numeric)) return null;
-  if (numeric < 0 || numeric > 100) return null;
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) return null;
   const normalized = numeric > 1 ? numeric / 100 : numeric;
   return normalized <= 1 ? normalized : null;
 }
 
-export function ensureDefaultTaxRules(country: string, hsCode: string) {
-  const normalizedCountry = normalizeCountry(country);
-  const normalizedHsCode = normalizeHsCode(hsCode);
+function lookupKey(country: string, hsCode: string) {
+  return `${normalizeCountry(country)}::${normalizeHsCode(hsCode)}`;
+}
+
+function documentId(rule: TaxRuleEntry) {
+  const identity = [lookupKey(rule.country, rule.hsCode), rule.taxType, rule.source, rule.version]
+    .map((value) => value.trim().toLowerCase())
+    .join('::');
+  return crypto.createHash('sha256').update(identity).digest('hex');
+}
+
+function firestoreData(rule: TaxRuleEntry) {
+  return {
+    country: rule.country,
+    countryKey: normalizeCountry(rule.country),
+    lookupKey: lookupKey(rule.country, rule.hsCode),
+    hsCode: normalizeHsCode(rule.hsCode),
+    name: rule.name,
+    taxType: rule.taxType,
+    rate: rule.rate,
+    description: rule.rule,
+    source: rule.source,
+    version: rule.version,
+    status: rule.status || 'active',
+    isEstimated: Boolean(rule.isEstimated),
+  };
+}
+
+export async function ensureDefaultTaxRules(country: string, hsCode: string) {
   const defaults: TaxRuleEntry[] = [
-    { country, hsCode: normalizedHsCode, name: 'Estimated import duty', taxType: 'duty', rate: 0.15, rule: 'Estimated default import duty', source: 'system-estimate', version: 'estimated-v1', status: 'fallback', isEstimated: true },
-    { country, hsCode: normalizedHsCode, name: 'Estimated import tax', taxType: 'tax', rate: 0.10, rule: 'Estimated default import tax', source: 'system-estimate', version: 'estimated-v1', status: 'fallback', isEstimated: true },
+    { country, hsCode, name: 'Estimated import duty', taxType: 'duty', rate: 0.15, rule: 'Estimated default import duty', source: 'system-estimate', version: 'estimated-v1', status: 'fallback', isEstimated: true },
+    { country, hsCode, name: 'Estimated import tax', taxType: 'tax', rate: 0.10, rule: 'Estimated default import tax', source: 'system-estimate', version: 'estimated-v1', status: 'fallback', isEstimated: true },
   ];
-  const insert = db.prepare(`
-    INSERT INTO tax_rules (country, normalized_country_key, hs_code, tax_type, rate, rule_name, description, source, version, status, is_estimated, effective_from)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `);
-  const transaction = db.transaction(() => {
-    let created = 0;
-    for (const rule of defaults) {
-      const existing = db.prepare('SELECT id FROM tax_rules WHERE country = ? AND hs_code = ? AND tax_type = ? AND source = ? AND version = ?').get(rule.country, rule.hsCode, rule.taxType, rule.source, rule.version);
-      if (!existing) {
-        insert.run(rule.country, normalizedCountry, rule.hsCode, rule.taxType, rule.rate, rule.name, rule.rule, rule.source, rule.version, rule.status, 1);
-        created += 1;
+
+  await firestore.runTransaction(async (transaction) => {
+    const references = defaults.map((rule) => firestore.collection('taxRules').doc(documentId(rule)));
+    const snapshots = await transaction.getAll(...references);
+    snapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists) {
+        transaction.create(snapshot.ref, {
+          ...firestoreData(defaults[index]),
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          effectiveFrom: FieldValue.serverTimestamp(),
+        });
       }
-    }
-    return created;
+    });
   });
-  transaction();
 }
 
-export function getStoredTaxRules(country?: string, hsCode?: string, status = 'active') {
-  const clauses: string[] = [];
-  const values: unknown[] = [];
+export async function getStoredTaxRules(country: string, hsCode: string, status = 'active') {
+  const snapshot = await firestore.collection('taxRules')
+    .where('lookupKey', '==', lookupKey(country, hsCode))
+    .get();
 
-  if (country) {
-    clauses.push('normalized_country_key = ?');
-    values.push(normalizeCountry(country));
-  }
-
-  if (hsCode) {
-    clauses.push('hs_code = ?');
-    values.push(normalizeHsCode(hsCode));
-  }
-
-  clauses.push('status = ?');
-  values.push(status);
-
-  const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const query = `SELECT country, hs_code AS hsCode, tax_type AS taxType, rate, rule_name AS rule, description, source, version, status, is_estimated AS isEstimated, effective_from AS effectiveFrom
-    FROM tax_rules ${whereClause} ORDER BY updated_at DESC`;
-
-  return db.prepare(query).all(...values) as Array<{
-    country: string;
-    hsCode: string;
-    taxType: string;
-    rate: number;
-    rule: string | null;
-    description: string | null;
-    source: string;
-    version: string;
-    status: string;
-    isEstimated: number;
-    effectiveFrom: string;
-  }>;
+  return snapshot.docs
+    .map((document) => document.data())
+    .filter((rule) => rule.status === status)
+    .map((rule) => ({
+      country: String(rule.country || ''),
+      hsCode: String(rule.hsCode || ''),
+      taxType: String(rule.taxType || ''),
+      rate: Number(rule.rate),
+      rule: String(rule.name || ''),
+      description: String(rule.description || ''),
+      source: String(rule.source || ''),
+      version: String(rule.version || ''),
+      status: String(rule.status || ''),
+      isEstimated: Boolean(rule.isEstimated),
+      effectiveFrom: rule.effectiveFrom instanceof Timestamp ? rule.effectiveFrom.toDate().toISOString() : null,
+    }));
 }
 
-export function upsertTaxRules(rules: TaxRuleEntry[]) {
+export async function upsertTaxRules(rules: TaxRuleEntry[]) {
   if (!rules.length) return 0;
 
-  const insert = db.prepare(`
-    INSERT INTO tax_rules (country, normalized_country_key, hs_code, tax_type, rate, rule_name, description, source, version, status, is_estimated, effective_from)
-    VALUES (@country, @normalizedCountryKey, @hsCode, @taxType, @rate, @rule, @description, @source, @version, @status, @isEstimated, datetime('now'))
-    ON CONFLICT(country, hs_code, tax_type, source, version)
-    DO UPDATE SET normalized_country_key = excluded.normalized_country_key, rate = excluded.rate, rule_name = excluded.rule_name, description = excluded.description, status = excluded.status, is_estimated = excluded.is_estimated, updated_at = CURRENT_TIMESTAMP
-  `);
+  const collection = firestore.collection('taxRules');
+  const references = rules.map((rule) => collection.doc(documentId(rule)));
+  const snapshots = await firestore.getAll(...references);
+  const batch = firestore.batch();
 
-  const transaction = db.transaction(() => {
-    let count = 0;
-    for (const rule of rules) {
-      insert.run({
-        country: rule.country,
-        normalizedCountryKey: normalizeCountry(rule.country),
-        hsCode: rule.hsCode,
-        taxType: rule.taxType,
-        rate: rule.rate,
-        rule: rule.rule,
-        description: rule.rule,
-        source: rule.source,
-        version: rule.version,
-        status: rule.status || 'active',
-        isEstimated: rule.isEstimated ? 1 : 0,
-      });
-      count += 1;
-    }
-    return count;
+  rules.forEach((rule, index) => {
+    batch.set(references[index], {
+      ...firestoreData(rule),
+      ...(snapshots[index].exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
+      updatedAt: FieldValue.serverTimestamp(),
+      effectiveFrom: FieldValue.serverTimestamp(),
+    }, { merge: true });
   });
 
-  return transaction();
+  await batch.commit();
+  return rules.length;
 }
 
 export function calculateTaxBreakdownFromRules(
@@ -151,46 +153,30 @@ export function calculateTaxBreakdownFromRules(
 ): TaxCalculationResult {
   const declaredValue = Number(productValue || 0) * Number(quantity || 0);
   const normalizedRules = rules
-    .map((rule) => ({
-      ...rule,
-      rate: normalizeRate(rule.rate),
-    }))
+    .map((rule) => ({ ...rule, rate: normalizeRate(rule.rate) }))
     .filter((rule): rule is TaxRuleEntry & { rate: number } => rule.rate !== null && rule.rate >= 0);
 
   if (!normalizedRules.length) {
-    return {
-      source: 'unavailable',
-      version: version || 'none',
-      usedFallback: true,
-      rules: [],
-      subtotal: declaredValue,
-      taxes: [],
-      total: declaredValue,
-    };
+    return { source: 'unavailable', version: version || 'none', usedFallback: true, rules: [], subtotal: declaredValue, taxes: [], total: declaredValue };
   }
 
-  const taxes = normalizedRules.map((rule) => {
-    const amount = declaredValue * rule.rate;
-    return {
-      name: rule.name,
-      taxType: rule.taxType,
-      rate: Number((rule.rate * 100).toFixed(4)),
-      amount: Number(amount.toFixed(2)),
-      calculationBase: 'subtotal' as const,
-    };
-  });
-
-  const totalTax = taxes.reduce((sum, tax) => sum + tax.amount, 0);
+  const taxes = normalizedRules.map((rule) => ({
+    name: rule.name,
+    taxType: rule.taxType,
+    rate: Number((rule.rate * 100).toFixed(4)),
+    amount: Number((declaredValue * rule.rate).toFixed(2)),
+    calculationBase: 'subtotal' as const,
+  }));
   const subtotal = Number(declaredValue.toFixed(2));
-  const total = Number((subtotal + totalTax).toFixed(2));
+  const totalTax = taxes.reduce((sum, tax) => sum + tax.amount, 0);
 
   return {
     source,
     version,
-    usedFallback: source === 'database',
+    usedFallback: source === 'database' || source === 'default',
     rules: normalizedRules,
     subtotal,
     taxes,
-    total,
+    total: Number((subtotal + totalTax).toFixed(2)),
   };
 }

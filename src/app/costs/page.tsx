@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import { firebaseAuth } from '@/lib/firebase';
 import {
   AlertTriangle,
   Calculator,
@@ -339,10 +340,14 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
     setTaxError(null);
 
     try {
+      if (manualRatesOpen && manualRates.length === 0) {
+        throw new Error('Add at least one manual tax rule or switch back to automatic rates.');
+      }
+
       const userTaxRules = manualRatesOpen ? manualRates.map((rule) => ({
         name: rule.name,
         taxType: rule.taxType,
-        rate: Number(rule.rate) / 100,
+        rate: rule.rate,
         description: rule.description,
       })) : [];
       const response = await fetch('/api/tax/calculate', {
@@ -511,7 +516,6 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
-  const { user } = useAuth();
 
   async function saveCalculation() {
     setSaving(true);
@@ -519,8 +523,11 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     setMessage('');
 
     try {
+      const firebaseUser = firebaseAuth.currentUser;
+      if (!firebaseUser) throw new Error('Please sign in before saving a calculation.');
+      const idToken = await firebaseUser.getIdToken();
+
       const body = {
-        userId: user?.id ?? null,
         input: { route, product, shipment },
         taxBreakdown: calculation.taxBreakdown || {
           subtotal: costs.total,
@@ -537,7 +544,10 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
 
       const response = await fetch('/api/calculations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify(body),
       });
 
@@ -546,6 +556,9 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
 
       setSaveState('success');
       setMessage(payload.duplicate ? 'This calculation was already saved.' : 'Calculation saved successfully.');
+      if (!payload.duplicate) {
+        writeCalculations([calculation, ...readCalculations().filter((item) => item.id !== calculation.id)]);
+      }
     } catch (error) {
       console.error('Failed to save calculation:', error);
       setSaveState('error');
@@ -569,7 +582,15 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm">
       <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1 text-emerald-300">
         <CheckCircle size={14} />
-        {calculation.taxSource === 'gemini' ? 'Used Gemini extraction' : calculation.taxSource === 'database' ? 'Used saved tax table' : 'Tax source unavailable'}
+        {calculation.taxSource === 'user'
+          ? 'Used rates entered by you'
+          : calculation.taxSource === 'gemini'
+            ? 'Used Gemini extraction'
+            : calculation.taxSource === 'database'
+              ? 'Used saved tax table'
+              : calculation.taxSource === 'default'
+                ? 'Used estimated default rates'
+                : 'Tax source unavailable'}
       </div>
       <span className="text-slate-400">Version: {calculation.taxVersion || 'unknown'}</span>
       <span className="text-slate-400">{calculation.ruleSourceLabel || 'Tax source'}</span>
@@ -652,18 +673,6 @@ function canContinue(step: number, route: RouteInfo, product: ProductInfo, shipm
   if (step === 2) return Boolean(product.productName && product.hsCode && product.countryOfOrigin && product.quantity > 0 && product.productValue > 0);
   return shipment.weightKg > 0 && shipment.numberOfPackages > 0;
 }
-function calculateCosts(product: ProductInfo, shipment: ShipmentInfo): CostBreakdown {
-  const freightRates = { Sea: 15, Air: 40, Road: 10 };
-  const minimums = { Sea: 250, Air: 150, Road: 100 };
-  const charges = { Sea: 500, Air: 150, Road: 75 };
-  const declaredValue = product.productValue * product.quantity;
-  const freight = Math.max(shipment.weightKg * freightRates[shipment.shippingMode], minimums[shipment.shippingMode]);
-  const insurance = round2(declaredValue * 0.01);
-  const importDuty = round2(declaredValue * 0.15);
-  const taxes = round2((declaredValue + importDuty) * 0.1);
-  const portCharges = charges[shipment.shippingMode];
-  return { freight: round2(freight), insurance, importDuty, taxes, portCharges, total: round2(freight + insurance + importDuty + taxes + portCharges) };
-}
 function readCalculations(): Calculation[] {
   if (typeof window === 'undefined') return [];
   try { return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '[]') as Calculation[]; } catch { return []; }
@@ -671,7 +680,6 @@ function readCalculations(): Calculation[] {
 function writeCalculations(calculations: Calculation[]) { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(calculations)); }
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value); }
 function today() { return new Date().toISOString().slice(0, 10); }
-function round2(value: number) { return Math.round(value * 100) / 100; }
 
 
 

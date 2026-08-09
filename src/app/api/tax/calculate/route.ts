@@ -14,7 +14,7 @@ import {
 } from '@/lib/tax';
 
 const GEMINI_TIMEOUT_MS = 8_000;
-const DEFAULT_WARNING = 'The latest tax rates could not be extracted. Estimated default rates were used. You can enter the latest rates manually and recalculate.';
+const DEFAULT_WARNING = "We couldn't extract the latest tax rates, and no matching verified rates were found. This result uses estimated default rates of 15% import duty and 10% import tax. You can enter the latest rates manually and recalculate.";
 
 type InputData = {
   route: Record<string, unknown>;
@@ -195,23 +195,23 @@ export async function POST(request: Request) {
 
     if (userRules.rules?.length) {
       const result = calculateTaxBreakdownFromRules(productValue, quantity, userRules.rules, 'user', 'user-v1');
-      return NextResponse.json({ ...result, taxSource: 'user', sourceLabel: 'User-provided rates', isEstimated: false, latestRatesExtracted: false, allowManualRates: true, warning: null });
+      return NextResponse.json({ ...result, taxSource: 'user', sourceLabel: 'Calculation based on rates entered by the user', isEstimated: false, latestRatesExtracted: false, allowManualRates: true, warning: null });
     }
 
     const geminiResult = await extractWithGemini({ route, product, shipment }, country, hsCode);
     if (geminiResult) {
       try {
-        upsertTaxRules(geminiResult.rules);
+        await upsertTaxRules(geminiResult.rules);
       } catch {
         console.error('Tax extraction: database update failure for Gemini rules.');
       }
       const result = calculateTaxBreakdownFromRules(productValue, quantity, geminiResult.rules, 'gemini', geminiResult.version);
-      return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Latest rates extracted by Gemini', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
+      return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Calculation based on the latest rates extracted by Gemini', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
     }
 
-    let storedRules;
+    let storedRules: TaxRuleEntry[];
     try {
-      storedRules = rulesFromRows(getStoredTaxRules(country, hsCode, 'active') as Array<Record<string, unknown>>, 'database');
+      storedRules = rulesFromRows(await getStoredTaxRules(country, hsCode, 'active') as Array<Record<string, unknown>>, 'database');
     } catch {
       console.error('Tax calculation: database read failure.');
       storedRules = [];
@@ -222,8 +222,8 @@ export async function POST(request: Request) {
     }
 
     try {
-      ensureDefaultTaxRules(country, hsCode);
-      const defaultRules = rulesFromRows(getStoredTaxRules(country, hsCode, 'fallback') as Array<Record<string, unknown>>, 'default');
+      await ensureDefaultTaxRules(country, hsCode);
+      const defaultRules = rulesFromRows(await getStoredTaxRules(country, hsCode, 'fallback') as Array<Record<string, unknown>>, 'default');
       if (defaultRules.length) {
         const result = calculateTaxBreakdownFromRules(productValue, quantity, defaultRules, 'default', defaultRules[0].version);
         return NextResponse.json({ ...result, taxSource: 'default', sourceLabel: 'Estimated database fallback', isEstimated: true, latestRatesExtracted: false, allowManualRates: true, warning: DEFAULT_WARNING });
