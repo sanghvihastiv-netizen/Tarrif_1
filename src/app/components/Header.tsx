@@ -27,12 +27,6 @@ export default function Header() {
             Tariff<span className="text-amber-500">Wars</span>
           </Link>
 
-          <nav className="hidden md:flex space-x-8">
-            <Link href="/" className="text-gray-300 hover:text-white transition text-sm">Home</Link>
-            <Link href="/simulator" className="text-gray-300 hover:text-white transition text-sm">Simulator</Link>
-            <Link href="/scenarios" className="text-gray-300 hover:text-white transition text-sm">Scenarios</Link>
-          </nav>
-
           <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <div className="relative">
@@ -98,11 +92,8 @@ export default function Header() {
               <Link href="/" className="text-gray-300 hover:text-white py-1" onClick={() => setIsOpen(false)}>
                 Home
               </Link>
-              <Link href="/simulator" className="text-gray-300 hover:text-white py-1" onClick={() => setIsOpen(false)}>
-                Simulator
-              </Link>
-              <Link href="/scenarios" className="text-gray-300 hover:text-white py-1" onClick={() => setIsOpen(false)}>
-                Scenarios
+              <Link href="/costs" className="text-gray-300 hover:text-white py-1" onClick={() => setIsOpen(false)}>
+                Calculator
               </Link>
               {user ? (
                 <>
@@ -131,12 +122,6 @@ export default function Header() {
           </div>
         )}
       </div>
-      <nav className="hidden md:flex space-x-8">
-  <Link href="/" className="text-gray-300 hover:text-white transition text-sm">Home</Link>
-  <Link href="/simulator" className="text-gray-300 hover:text-white transition text-sm">Simulator</Link>
-  <Link href="/scenarios" className="text-gray-300 hover:text-white transition text-sm">Scenarios</Link>
-  <Link href="/schedules" className="text-gray-300 hover:text-white transition text-sm">Schedules</Link>
-</nav>
     </header>
   );
 }

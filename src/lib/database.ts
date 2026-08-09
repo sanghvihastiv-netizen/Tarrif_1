@@ -75,6 +75,34 @@ function createDatabase() {
     CREATE INDEX IF NOT EXISTS idx_saved_calculations_user_id ON saved_calculations(user_id);
   `);
 
+  const taxRuleColumns = db.prepare('PRAGMA table_info(tax_rules)').all() as Array<{ name: string }>;
+  const existingTaxRuleColumns = new Set(taxRuleColumns.map((column) => column.name));
+  const taxRuleMigrations = [
+    ['normalized_country_key', "ALTER TABLE tax_rules ADD COLUMN normalized_country_key TEXT NOT NULL DEFAULT ''"],
+    ['description', "ALTER TABLE tax_rules ADD COLUMN description TEXT NOT NULL DEFAULT ''"],
+    ['status', "ALTER TABLE tax_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"],
+    ['is_estimated', "ALTER TABLE tax_rules ADD COLUMN is_estimated INTEGER NOT NULL DEFAULT 0"],
+  ] as const;
+  for (const [column, statement] of taxRuleMigrations) {
+    if (!existingTaxRuleColumns.has(column)) db.exec(statement);
+  }
+
+  const savedCalculationColumns = db.prepare('PRAGMA table_info(saved_calculations)').all() as Array<{ name: string }>;
+  const existingSavedCalculationColumns = new Set(savedCalculationColumns.map((column) => column.name));
+  const savedCalculationMigrations = [
+    ['warning', "ALTER TABLE saved_calculations ADD COLUMN warning TEXT"],
+    ['is_estimated', "ALTER TABLE saved_calculations ADD COLUMN is_estimated INTEGER NOT NULL DEFAULT 0"],
+  ] as const;
+  for (const [column, statement] of savedCalculationMigrations) {
+    if (!existingSavedCalculationColumns.has(column)) db.exec(statement);
+  }
+
+  db.exec(`
+    UPDATE tax_rules
+    SET normalized_country_key = lower(trim(country))
+    WHERE normalized_country_key = '';
+  `);
+
   return db;
 }
 

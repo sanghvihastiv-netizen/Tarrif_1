@@ -1,6 +1,6 @@
 'use client';
 
-
+import { useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
@@ -43,6 +43,7 @@ function toAuthUser(user: User): AuthUser {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
 
   useEffect(() => onAuthStateChanged(firebaseAuth, (firebaseUser) => {
@@ -78,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     await firebaseSignOut(firebaseAuth);
+    router.push('/');
   };
 
 

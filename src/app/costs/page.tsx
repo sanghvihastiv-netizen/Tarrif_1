@@ -50,6 +50,13 @@ interface ShipmentInfo {
   containerType: string;
 }
 
+type ManualTaxRule = {
+  name: string;
+  taxType: 'duty' | 'tax' | 'fee';
+  rate: string;
+  description: string;
+};
+
 
 interface CostBreakdown {
   freight: number;
@@ -69,6 +76,19 @@ interface Calculation {
   shipment: ShipmentInfo;
   costs: CostBreakdown;
   estimatedTransitTime: string;
+  taxSource?: string;
+  taxVersion?: string;
+  ruleSourceLabel?: string;
+  isEstimated?: boolean;
+  warning?: string | null;
+  taxBreakdown?: {
+    subtotal?: number;
+    total?: number;
+    taxes?: Array<{ name: string; taxType?: string; rate: number; amount: number; calculationBase?: string }>;
+    source?: string;
+    version?: string;
+    rules?: Array<{ name: string; rate: number; country: string; hsCode: string; rule?: string }>;
+  };
 }
 
 
@@ -113,6 +133,8 @@ export default function CostsPage() {
   const [view, setView] = useState<View>('dashboard');
   const [calculations, setCalculations] = useState<Calculation[]>([]);
   const [selected, setSelected] = useState<Calculation | null>(null);
+  const [calculatorDraft, setCalculatorDraft] = useState({ route: emptyRoute, product: emptyProduct, shipment: emptyShipment });
+  const [reopenManualRates, setReopenManualRates] = useState(false);
   const { user, signOut } = useAuth();
 
 
@@ -188,7 +210,11 @@ export default function CostsPage() {
         {view === 'calculator' && (
           <CalculatorView
             onCancel={() => navigate('dashboard')}
+            initialDraft={calculatorDraft}
+            reopenManualRates={reopenManualRates}
+            onDraftChange={setCalculatorDraft}
             onComplete={(calculation) => {
+              setReopenManualRates(false);
               refresh();
               navigate('result', calculation);
             }}
@@ -198,7 +224,10 @@ export default function CostsPage() {
           <Saved calculations={calculations} onView={(calculation) => navigate('result', calculation)} />
         )}
         {view === 'result' && selected && (
-          <Result calculation={selected} onBack={() => navigate('dashboard')} />
+          <Result calculation={selected} onBack={() => navigate('dashboard')} onEnterManualRates={() => {
+            setReopenManualRates(true);
+            navigate('calculator');
+          }} />
         )}
       </div>
     </main>
@@ -289,14 +318,20 @@ function Dashboard({
 }
 
 
-function CalculatorView({ onCancel, onComplete }: { onCancel: () => void; onComplete: (calculation: Calculation) => void }) {
+function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reopenManualRates }: { onCancel: () => void; onComplete: (calculation: Calculation) => void; initialDraft: { route: RouteInfo; product: ProductInfo; shipment: ShipmentInfo }; onDraftChange: (draft: { route: RouteInfo; product: ProductInfo; shipment: ShipmentInfo }) => void; reopenManualRates: boolean }) {
   const [step, setStep] = useState(1);
-  const [route, setRoute] = useState<RouteInfo>(emptyRoute);
-  const [product, setProduct] = useState<ProductInfo>(emptyProduct);
-  const [shipment, setShipment] = useState<ShipmentInfo>(emptyShipment);
+  const [route, setRoute] = useState<RouteInfo>(initialDraft.route);
+  const [product, setProduct] = useState<ProductInfo>(initialDraft.product);
+  const [shipment, setShipment] = useState<ShipmentInfo>(initialDraft.shipment);
+  const [manualRates, setManualRates] = useState<ManualTaxRule[]>([]);
+  const [manualRatesOpen, setManualRatesOpen] = useState(reopenManualRates);
   const [submitting, setSubmitting] = useState(false);
   const [taxError, setTaxError] = useState<string | null>(null);
   const labels = ['Route', 'Product', 'Shipment', 'Review'];
+
+  useEffect(() => {
+    onDraftChange({ route, product, shipment });
+  }, [onDraftChange, product, route, shipment]);
 
 
   async function calculate() {
@@ -304,10 +339,16 @@ function CalculatorView({ onCancel, onComplete }: { onCancel: () => void; onComp
     setTaxError(null);
 
     try {
+      const userTaxRules = manualRatesOpen ? manualRates.map((rule) => ({
+        name: rule.name,
+        taxType: rule.taxType,
+        rate: Number(rule.rate) / 100,
+        description: rule.description,
+      })) : [];
       const response = await fetch('/api/tax/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route, product, shipment }),
+        body: JSON.stringify({ route, product, shipment, userTaxRules }),
       });
 
       const payload = await response.json();
@@ -347,6 +388,8 @@ function CalculatorView({ onCancel, onComplete }: { onCancel: () => void; onComp
         taxSource: payload.taxSource || 'database',
         taxVersion: payload.version || 'unknown',
         ruleSourceLabel: payload.sourceLabel || 'Stored tax table fallback',
+        isEstimated: Boolean(payload.isEstimated),
+        warning: typeof payload.warning === 'string' ? payload.warning : null,
         taxBreakdown,
       };
 
@@ -375,7 +418,10 @@ function CalculatorView({ onCancel, onComplete }: { onCancel: () => void; onComp
         {step === 1 && <RouteStep route={route} setRoute={setRoute} />}
         {step === 2 && <ProductStep product={product} setProduct={setProduct} />}
         {step === 3 && <ShipmentStep shipment={shipment} setShipment={setShipment} />}
-        {step === 4 && <Review route={route} product={product} shipment={shipment} />}
+        {step === 4 && <>
+          <Review route={route} product={product} shipment={shipment} />
+          <ManualRatesSection open={manualRatesOpen} rules={manualRates} onToggle={() => setManualRatesOpen((open) => !open)} onChange={setManualRates} />
+        </>}
         {taxError && (
           <div className="mt-6 flex items-start gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
             <AlertTriangle size={16} className="mt-0.5" />
@@ -389,6 +435,30 @@ function CalculatorView({ onCancel, onComplete }: { onCancel: () => void; onComp
       </Panel>
     </>
   );
+}
+
+function ManualRatesSection({ open, rules, onToggle, onChange }: { open: boolean; rules: ManualTaxRule[]; onToggle: () => void; onChange: (rules: ManualTaxRule[]) => void }) {
+  function update(index: number, patch: Partial<ManualTaxRule>) {
+    onChange(rules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...patch } : rule));
+  }
+
+  return <div className="mt-8 border-t border-white/10 pt-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div><h2 className="text-lg font-semibold">Do you know the latest applicable tax rates?</h2><p className="mt-1 text-sm text-slate-500">Enter 15 for 15%. Rates are converted to decimals before calculation: 15 → 0.15, 10 → 0.10, 7.5 → 0.075.</p></div>
+      <button type="button" onClick={onToggle} className="rounded-lg border border-amber-400/50 px-4 py-2 text-sm text-amber-300 hover:bg-amber-400/10">{open ? 'Use automatic rates' : 'Enter rates manually'}</button>
+    </div>
+    {open && <div className="mt-5 space-y-4">
+      {rules.map((rule, index) => <div key={index} className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4 sm:grid-cols-[1.4fr_1fr_0.8fr_1.5fr_auto] sm:items-end">
+        <Field label="Tax name"><input value={rule.name} onChange={(event) => update(index, { name: event.target.value })} placeholder="Import duty" className={inputClass} /></Field>
+        <Field label="Tax type"><select value={rule.taxType} onChange={(event) => update(index, { taxType: event.target.value as ManualTaxRule['taxType'] })} className={inputClass}><option value="duty">Duty</option><option value="tax">Tax</option><option value="fee">Fee</option></select></Field>
+        <Field label="Rate (%)"><input type="number" min="0" max="100" step="0.01" value={rule.rate} onChange={(event) => update(index, { rate: event.target.value })} placeholder="15" className={inputClass} /></Field>
+        <Field label="Description (optional)"><input value={rule.description} onChange={(event) => update(index, { description: event.target.value })} placeholder="Short rule description" className={inputClass} /></Field>
+        <button type="button" title="Remove tax rule" onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))} className="p-2 text-red-300 hover:text-red-200"><Trash2 size={16} /></button>
+      </div>)}
+      <button type="button" onClick={() => onChange([...rules, { name: '', taxType: 'tax', rate: '', description: '' }])} className="inline-flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200"><Plus size={15} /> Add tax rule</button>
+      {rules.length === 0 && <p className="text-sm text-slate-500">Add at least one rule to calculate from your rates.</p>}
+    </div>}
+  </div>;
 }
 
 
@@ -436,7 +506,7 @@ function Review({ route, product, shipment }: { route: RouteInfo; product: Produ
 }
 
 
-function Result({ calculation, onBack }: { calculation: Calculation & { taxSource?: string; taxVersion?: string; ruleSourceLabel?: string; taxBreakdown?: { subtotal?: number; total?: number; taxes?: Array<{ name: string; rate: number; amount: number }>; source?: string; version?: string; rules?: Array<{ name: string; rate: number; country: string; hsCode: string; rule?: string }> } } ; onBack: () => void }) {
+function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calculation; onBack: () => void; onEnterManualRates: () => void }) {
   const { route, product, shipment, costs } = calculation;
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'success' | 'error'>('idle');
@@ -461,6 +531,8 @@ function Result({ calculation, onBack }: { calculation: Calculation & { taxSourc
         totalAmount: calculation.taxBreakdown?.total ?? costs.total,
         taxRuleVersion: calculation.taxVersion || 'unknown',
         taxSource: calculation.taxSource || 'database',
+        warning: calculation.warning || null,
+        isEstimated: Boolean(calculation.isEstimated),
       };
 
       const response = await fetch('/api/calculations', {
@@ -502,6 +574,10 @@ function Result({ calculation, onBack }: { calculation: Calculation & { taxSourc
       <span className="text-slate-400">Version: {calculation.taxVersion || 'unknown'}</span>
       <span className="text-slate-400">{calculation.ruleSourceLabel || 'Tax source'}</span>
     </div>
+    {calculation.warning && <div className={`mb-6 flex flex-col gap-3 rounded-xl border p-4 text-sm ${calculation.isEstimated ? 'border-amber-400/60 bg-amber-400/10 text-amber-100' : 'border-yellow-400/40 bg-yellow-400/10 text-yellow-100'}`}>
+      <div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0" /><p>{calculation.warning}</p></div>
+      {calculation.isEstimated && <button type="button" onClick={onEnterManualRates} className="self-start rounded-lg border border-amber-300/60 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-300/10">Enter rates and recalculate</button>}
+    </div>}
 
     <div className="mb-6 grid gap-4 sm:grid-cols-2">
       <Panel><h2 className="mb-4 font-semibold">Shipping route</h2><Info label="From" value={`${route.originPort}, ${route.originCountry}`} /><Info label="To" value={`${route.destinationPort}, ${route.destinationCountry}`} /><Info label="Shipping date" value={route.shippingDate} /><Info label="Estimated transit time" value={calculation.estimatedTransitTime} /></Panel>

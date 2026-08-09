@@ -16,6 +16,8 @@ export async function POST(request: Request) {
       totalAmount,
       taxRuleVersion,
       taxSource,
+      warning,
+      isEstimated,
     } = body as {
       userId?: string | number | null;
       input?: unknown;
@@ -24,6 +26,8 @@ export async function POST(request: Request) {
       totalAmount?: number;
       taxRuleVersion?: string;
       taxSource?: string;
+      warning?: string | null;
+      isEstimated?: boolean;
     };
 
     if (!input || !taxBreakdown || typeof totalAmount !== 'number') {
@@ -53,8 +57,10 @@ export async function POST(request: Request) {
         total_amount,
         tax_rule_version,
         tax_source,
+        warning,
+        is_estimated,
         dedupe_key
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       userId ?? null,
       normalizedInput,
@@ -63,6 +69,8 @@ export async function POST(request: Request) {
       Number(totalAmount || 0),
       taxRuleVersion ?? 'unknown',
       taxSource ?? 'unknown',
+      warning ?? null,
+      isEstimated ? 1 : 0,
       dedupeKey,
     );
 

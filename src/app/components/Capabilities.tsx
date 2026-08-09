@@ -1,30 +1,28 @@
 'use client';
 
-
 export default function Capabilities() {
   const capabilities = [
     {
-      title: 'Carrier Reliability Scoring',
-      description: 'Compare carriers by on-time performance, delay history, and disruption exposure before booking a lane.',
-      icon: '📈',
+      title: 'Route and product cost estimation',
+      description: 'Calculate a complete landed-cost estimate from origin and destination, product value, quantity, and shipping mode.',
+      icon: '📦',
     },
     {
-      title: 'Route Risk Intelligence',
-      description: 'Track port congestion, weather, strikes, sanctions, and other events that can slow a voyage.',
-      icon: '🌍',
+      title: 'Tax and duty extraction',
+      description: 'Use Gemini to extract the latest applicable taxes, duty rules, and rate logic before calculating the final total.',
+      icon: '🧠',
     },
     {
-      title: 'Transit vs Cost Decisioning',
-      description: 'Weigh transit time, surcharges, and total trip cost side by side to protect service levels and margin.',
-      icon: '⚖️',
+      title: 'Clear cost breakdowns',
+      description: 'Break down freight, insurance, import duty, taxes, and port charges into clearly itemized line items.',
+      icon: '📊',
     },
     {
-      title: 'Shipping Line Event Watch',
-      description: 'Monitor schedules, service alerts, and future disruptions that could change the reliability of a route.',
-      icon: '🚢',
+      title: 'Saved and reviewable results',
+      description: 'Keep the results you need, review them later, and save only when you explicitly choose to keep the calculation.',
+      icon: '💾',
     },
   ];
-
 
   return (
     <section className="py-20 bg-black relative">
@@ -34,13 +32,12 @@ export default function Capabilities() {
             Capabilities
           </div>
           <h2 className="text-3xl md:text-5xl font-bold mb-4">
-            A command center for <span className="text-amber-400">route decisions</span>
+            Built for <span className="text-amber-400">landed-cost decisions</span>
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
-            Decision support built for operators who need reliable shipping options, not just raw pricing data.
+            The platform is focused on practical cost modeling for shipping operations, import planning, and margin protection.
           </p>
         </div>
-
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {capabilities.map((cap, idx) => (
@@ -57,27 +54,26 @@ export default function Capabilities() {
           ))}
         </div>
 
-
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8">
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">⏱️</div>
+            <div className="text-2xl">🚢</div>
             <div>
-              <div className="text-sm font-medium">Transit Time</div>
-              <div className="text-xs text-gray-500">Compare route duration at a glance</div>
+              <div className="text-sm font-medium">Shipping modes</div>
+              <div className="text-xs text-gray-500">Sea, air, and road comparisons</div>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">🚨</div>
+            <div className="text-2xl">🧾</div>
             <div>
-              <div className="text-sm font-medium">Delay Alerts</div>
-              <div className="text-xs text-gray-500">Live disruption monitoring</div>
+              <div className="text-sm font-medium">Tax logic</div>
+              <div className="text-xs text-gray-500">Gemini + stored rule fallback</div>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-            <div className="text-2xl">📦</div>
+            <div className="text-2xl">📁</div>
             <div>
-              <div className="text-sm font-medium">Trip Economics</div>
-              <div className="text-xs text-gray-500">Reliability + price + time in one view</div>
+              <div className="text-sm font-medium">Saved results</div>
+              <div className="text-xs text-gray-500">Review and keep the right estimates</div>
             </div>
           </div>
         </div>
