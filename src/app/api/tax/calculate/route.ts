@@ -19,6 +19,7 @@ export const runtime = 'nodejs';
 const GEMINI_TIMEOUT_MS = 8_000;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const DEFAULT_WARNING = "We couldn't extract the latest tax rates, and no matching verified rates were found. This result uses estimated default rates of 15% import duty and 10% import tax. You can enter the latest rates manually and recalculate.";
+const PARTIAL_ESTIMATE_WARNING = 'Some current rates could not be verified. Missing customs duty or import-tax components were estimated using 15% duty and 10% import tax. Replace them with confirmed rates before relying on this result.';
 
 type InputData = {
   route: Record<string, unknown>;
@@ -161,7 +162,8 @@ function normalizeGeminiRules(raw: unknown, country: string, hsCode: string) {
     const calculationBase = typeof entry.calculationBase === 'string' ? entry.calculationBase : 'product_value';
     const fixedAmount = Number(entry.fixedAmount ?? 0);
     const duplicateKey = `${name.toLowerCase()}::${resolvedTaxType ?? 'unknown'}`;
-    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !resolvedTaxType || !SUPPORTED_TAX_TYPES.includes(resolvedTaxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || !['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase) || !Number.isFinite(fixedAmount) || fixedAmount < 0 || seen.has(duplicateKey)) continue;
+    const zeroRateIsExplained = rate !== 0 || /(duty[- ]?free|exempt|exemption|free trade|preferential|zero[- ]rated|0%)/i.test(rule);
+    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !resolvedTaxType || !SUPPORTED_TAX_TYPES.includes(resolvedTaxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || !zeroRateIsExplained || !['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase) || !Number.isFinite(fixedAmount) || fixedAmount < 0 || seen.has(duplicateKey)) continue;
     seen.add(duplicateKey);
     rules.push({ country: entryCountry, hsCode, name, taxType: resolvedTaxType, rate, rule, source: 'gemini', version, calculationBase: calculationBase as TaxRuleEntry['calculationBase'], fixedAmount });
   }
@@ -174,7 +176,7 @@ async function extractWithGemini(input: InputData, country: string, hsCode: stri
     console.warn('Tax extraction: missing Gemini key.');
     return null;
   }
-  const prompt = `Extract the latest applicable import tax rules for this shipment. Return JSON only, with no markdown, matching this shape: {"version":"string","taxRules":[{"country":"exact destination country","hsCode":"normalized HS code","name":"tax name","taxType":"duty|tax|fee","rate":0.15,"fixedAmount":0,"calculationBase":"product_value|customs_value|customs_value_plus_duty","rule":"short rule description"}]} Use customs_value for a rate applied to product value plus freight and insurance. Use customs_value_plus_duty for VAT/GST applied after duty.\nShipment: ${JSON.stringify(input)}`;
+  const prompt = `Estimate the latest applicable import charges for this shipment using the destination country, origin country, product description and HS code. Return JSON only, with no markdown, matching this shape: {"version":"date or source version","taxRules":[{"country":"exact destination country","hsCode":"normalized HS code","name":"tax name","taxType":"duty|tax|fee","rate":0.15,"fixedAmount":0,"calculationBase":"product_value|customs_value|customs_value_plus_duty","rule":"short basis or eligibility explanation"}]}. Include customs duty and destination import VAT/GST/sales tax when applicable. Use customs_value for duty and customs_value_plus_duty for VAT/GST. Never return a 0% rate unless the rule explains the specific duty-free, exemption, preferential-origin, or zero-rated basis. Do not invent an exemption.\nShipment: ${JSON.stringify(input)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   try {
@@ -244,6 +246,20 @@ function rulesFromRows(rows: Array<Record<string, unknown>>, source: 'database' 
     .map((rule) => ({ ...rule, rate: rule.rate as number }));
 }
 
+function completeSimulationRules(rules: TaxRuleEntry[], country: string, hsCode: string) {
+  const completed = [...rules];
+  let usedEstimate = false;
+  if (!completed.some((rule) => rule.taxType === 'duty')) {
+    completed.unshift({ country, hsCode, name: 'Estimated customs duty', taxType: 'duty', rate: 0.15, rule: 'Simulation estimate because a current duty rate could not be verified', source: 'system-estimate', version: 'estimated-v1', isEstimated: true, calculationBase: 'customs_value' });
+    usedEstimate = true;
+  }
+  if (!completed.some((rule) => rule.taxType === 'tax')) {
+    completed.push({ country, hsCode, name: 'Estimated import tax', taxType: 'tax', rate: 0.10, rule: 'Simulation estimate because a current import-tax rate could not be verified', source: 'system-estimate', version: 'estimated-v1', isEstimated: true, calculationBase: 'customs_value_plus_duty' });
+    usedEstimate = true;
+  }
+  return { rules: completed, usedEstimate };
+}
+
 export async function POST(request: Request) {
   try {
     if (!await isAuthenticated(request)) {
@@ -271,8 +287,9 @@ export async function POST(request: Request) {
       } catch {
         console.error('Tax extraction: database update failure for Gemini rules.');
       }
-      const result = calculateTaxBreakdownFromRules(productValue, quantity, geminiResult.rules, 'gemini', geminiResult.version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
-      return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Calculation based on automatically retrieved current rates', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
+      const completed = completeSimulationRules(geminiResult.rules, country, hsCode);
+      const result = calculateTaxBreakdownFromRules(productValue, quantity, completed.rules, completed.usedEstimate ? 'default' : 'gemini', geminiResult.version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
+      return NextResponse.json({ ...result, taxSource: completed.usedEstimate ? 'default' : 'gemini', sourceLabel: completed.usedEstimate ? 'Automatically retrieved rates with estimated missing components' : 'Calculation based on automatically retrieved current rates', isEstimated: completed.usedEstimate, latestRatesExtracted: true, allowManualRates: true, warning: completed.usedEstimate ? PARTIAL_ESTIMATE_WARNING : null });
     }
 
     let storedRules: TaxRuleEntry[];
@@ -283,8 +300,9 @@ export async function POST(request: Request) {
       storedRules = [];
     }
     if (storedRules.length) {
-      const result = calculateTaxBreakdownFromRules(productValue, quantity, storedRules, 'database', storedRules[0].version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
-      return NextResponse.json({ ...result, taxSource: 'database', sourceLabel: 'Previously stored matching rates', isEstimated: false, latestRatesExtracted: false, allowManualRates: true, warning: STORED_WARNING });
+      const completed = completeSimulationRules(storedRules, country, hsCode);
+      const result = calculateTaxBreakdownFromRules(productValue, quantity, completed.rules, completed.usedEstimate ? 'default' : 'database', storedRules[0].version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
+      return NextResponse.json({ ...result, taxSource: completed.usedEstimate ? 'default' : 'database', sourceLabel: completed.usedEstimate ? 'Stored rates with estimated missing components' : 'Previously stored matching rates', isEstimated: completed.usedEstimate, latestRatesExtracted: false, allowManualRates: true, warning: completed.usedEstimate ? PARTIAL_ESTIMATE_WARNING : STORED_WARNING });
     }
 
     try {

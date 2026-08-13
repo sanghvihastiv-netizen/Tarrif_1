@@ -707,9 +707,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     row('Final total', money(Number(calculation.taxBreakdown?.total ?? costs.total)));
 
     heading('Calculation basis');
-    paragraph(calculation.taxSource === 'default'
-      ? 'Estimated standard import rates'
-      : professionalSourceLabel(calculation.ruleSourceLabel));
+    paragraph(professionalSourceLabel(calculation.ruleSourceLabel || (calculation.taxSource === 'default' ? 'Estimated standard import rates' : undefined)));
     if (calculation.warning) {
       heading('Important notice');
       paragraph(calculation.warning);
@@ -802,7 +800,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
                 ? 'Estimated standard import rates'
                 : 'Tax source unavailable'}
       </div>
-      {calculation.taxSource !== 'default' && calculation.ruleSourceLabel && (
+      {calculation.ruleSourceLabel && (
         <span className="text-slate-400">{professionalSourceLabel(calculation.ruleSourceLabel)}</span>
       )}
     </div>
@@ -840,9 +838,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
       <div className="mt-6 rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
         <p className="font-medium text-white">Calculation basis</p>
         <p className="mt-2">
-          {calculation.taxSource === 'default'
-            ? 'Estimated standard import rates'
-            : professionalSourceLabel(calculation.ruleSourceLabel)}
+          {professionalSourceLabel(calculation.ruleSourceLabel || (calculation.taxSource === 'default' ? 'Estimated standard import rates' : undefined))}
         </p>
       </div>
     </Panel></div>
