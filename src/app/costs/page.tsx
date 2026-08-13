@@ -422,11 +422,17 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
         throw new Error(payload?.error || 'Tax extraction failed.');
       }
 
+      const taxItems = Array.isArray(payload.taxes) ? payload.taxes : [];
+      const totalTaxes = taxItems.reduce((sum, tax) => sum + Number(tax.amount || 0), 0);
+      const importDuty = taxItems
+        .filter((tax) => String(tax.taxType || '').toLowerCase() === 'duty')
+        .reduce((sum, tax) => sum + Number(tax.amount || 0), 0);
+
       const taxBreakdown = {
         subtotal: Number(payload.subtotal || 0),
         customsValue: Number(payload.customsValue || payload.subtotal || 0),
         total: Number(payload.total || 0),
-        taxes: Array.isArray(payload.taxes) ? payload.taxes : [],
+        taxes: taxItems,
         source: payload.taxSource || 'database',
         version: payload.version || 'unknown',
         rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -441,8 +447,8 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
         costs: {
           freight: Number(payload.freight || 0),
           insurance: Number(payload.insurance || 0),
-          importDuty: Number(payload.importDuty || 0),
-          taxes: Number(payload.taxes?.reduce?.((sum: number, tax: { amount: number }) => sum + Number(tax.amount || 0), 0) || 0),
+          importDuty,
+          taxes: totalTaxes,
           portCharges: Number(payload.portCharges || 0),
           total: Number(payload.total || 0),
         },

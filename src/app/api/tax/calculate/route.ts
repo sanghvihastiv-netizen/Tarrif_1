@@ -41,6 +41,26 @@ async function isAuthenticated(request: Request) {
   }
 }
 
+function normalizeTaxRuleClassification(name: string, taxType: string) {
+  const normalizedName = name.trim();
+  const normalizedType = taxType.trim().toLowerCase();
+  const lowerName = normalizedName.toLowerCase();
+
+  if (/(gst|vat|sales tax|value added tax)/.test(lowerName) || /(gst|vat|sales tax|value added tax)/.test(normalizedType)) {
+    return { taxType: null, skip: true };
+  }
+
+  if (/(customs duty|import duty|duty|tariff)/.test(lowerName) && normalizedType === 'tax') {
+    return { taxType: 'duty', skip: false };
+  }
+
+  if (normalizedType && SUPPORTED_TAX_TYPES.includes(normalizedType as typeof SUPPORTED_TAX_TYPES[number])) {
+    return { taxType: normalizedType as typeof SUPPORTED_TAX_TYPES[number], skip: false };
+  }
+
+  return { taxType: null, skip: false };
+}
+
 function validateInput(payload: Record<string, unknown>) {
   const route = payload.route;
   const product = payload.product;
@@ -89,22 +109,25 @@ function validateUserRules(raw: unknown, country: string, hsCode: string) {
     const entry = item as Record<string, unknown>;
     const name = typeof entry.name === 'string' ? entry.name.trim() : '';
     const taxType = typeof entry.taxType === 'string' ? entry.taxType.trim().toLowerCase() : '';
+    const normalizedClassification = normalizeTaxRuleClassification(name, taxType);
+    if (normalizedClassification.skip) continue;
+    const resolvedTaxType = normalizedClassification.taxType;
     const rate = normalizeRate(entry.rate);
     const calculationBase = typeof entry.calculationBase === 'string' ? entry.calculationBase : 'product_value';
     const fixedAmount = Number(entry.fixedAmount ?? 0);
     if (!name) return { error: `userTaxRules[${index}].name is required.` };
-    if (!SUPPORTED_TAX_TYPES.includes(taxType as typeof SUPPORTED_TAX_TYPES[number])) return { error: `userTaxRules[${index}].taxType must be duty, tax, or fee.` };
+    if (!resolvedTaxType) return { error: `userTaxRules[${index}].taxType must be duty, tax, or fee.` };
     if (rate === null) return { error: `userTaxRules[${index}].rate must be between 0% and 100%.` };
     if (!['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase)) return { error: `userTaxRules[${index}].calculationBase is invalid.` };
     if (!Number.isFinite(fixedAmount) || fixedAmount < 0) return { error: `userTaxRules[${index}].fixedAmount must be zero or greater.` };
-    const duplicateKey = `${name.toLowerCase()}::${taxType}`;
-    if (seen.has(duplicateKey)) return { error: `Duplicate tax rule: ${name} (${taxType}).` };
+    const duplicateKey = `${name.toLowerCase()}::${resolvedTaxType}`;
+    if (seen.has(duplicateKey)) return { error: `Duplicate tax rule: ${name} (${resolvedTaxType}).` };
     seen.add(duplicateKey);
     rules.push({
       country,
       hsCode,
       name,
-      taxType,
+      taxType: resolvedTaxType,
       rate,
       rule: typeof entry.description === 'string' ? entry.description.trim() : '',
       source: 'user',
@@ -130,14 +153,17 @@ function normalizeGeminiRules(raw: unknown, country: string, hsCode: string) {
     const entryHsCode = normalizeHsCode(typeof entry.hsCode === 'string' ? entry.hsCode : '');
     const name = typeof entry.name === 'string' ? entry.name.trim() : '';
     const taxType = typeof entry.taxType === 'string' ? entry.taxType.trim().toLowerCase() : '';
+    const normalizedClassification = normalizeTaxRuleClassification(name, taxType);
+    if (normalizedClassification.skip) continue;
+    const resolvedTaxType = normalizedClassification.taxType;
     const rule = typeof entry.rule === 'string' ? entry.rule.trim() : '';
     const rate = normalizeRate(entry.rate);
     const calculationBase = typeof entry.calculationBase === 'string' ? entry.calculationBase : 'product_value';
     const fixedAmount = Number(entry.fixedAmount ?? 0);
-    const duplicateKey = `${name.toLowerCase()}::${taxType}`;
-    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !SUPPORTED_TAX_TYPES.includes(taxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || !['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase) || !Number.isFinite(fixedAmount) || fixedAmount < 0 || seen.has(duplicateKey)) continue;
+    const duplicateKey = `${name.toLowerCase()}::${resolvedTaxType ?? 'unknown'}`;
+    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !resolvedTaxType || !SUPPORTED_TAX_TYPES.includes(resolvedTaxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || !['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase) || !Number.isFinite(fixedAmount) || fixedAmount < 0 || seen.has(duplicateKey)) continue;
     seen.add(duplicateKey);
-    rules.push({ country: entryCountry, hsCode, name, taxType, rate, rule, source: 'gemini', version, calculationBase: calculationBase as TaxRuleEntry['calculationBase'], fixedAmount });
+    rules.push({ country: entryCountry, hsCode, name, taxType: resolvedTaxType, rate, rule, source: 'gemini', version, calculationBase: calculationBase as TaxRuleEntry['calculationBase'], fixedAmount });
   }
   return rules.length ? { version, rules } : null;
 }
@@ -194,21 +220,28 @@ async function extractWithGemini(input: InputData, country: string, hsCode: stri
 
 function rulesFromRows(rows: Array<Record<string, unknown>>, source: 'database' | 'default') {
   return rows
-    .map((row) => ({
-      country: String(row.country || ''),
-      hsCode: normalizeHsCode(String(row.hsCode || '')),
-      name: String(row.rule || row.taxType || ''),
-      taxType: String(row.taxType || '').toLowerCase(),
-      rate: normalizeRate(row.rate),
-      rule: String(row.description || row.rule || 'Stored tax rule'),
-      source,
-      version: String(row.version || 'unknown'),
-      isEstimated: Boolean(row.isEstimated),
-      calculationBase: typeof row.calculationBase === 'string' ? row.calculationBase : 'product_value',
-      fixedAmount: Number(row.fixedAmount || 0),
-    }))
-    .filter((rule) => Boolean(rule.country && /^\d{6,10}$/.test(rule.hsCode) && rule.name && SUPPORTED_TAX_TYPES.includes(rule.taxType as typeof SUPPORTED_TAX_TYPES[number]) && rule.rate !== null && rule.rate >= 0 && rule.rate <= 1))
-    .map((rule) => ({ ...rule, rate: rule.rate as number } as TaxRuleEntry));
+    .map((row) => {
+      const name = String(row.rule || row.taxType || '');
+      const taxType = String(row.taxType || '').toLowerCase();
+      const classification = normalizeTaxRuleClassification(name, taxType);
+      if (classification.skip || !classification.taxType) return null;
+
+      return {
+        country: String(row.country || ''),
+        hsCode: normalizeHsCode(String(row.hsCode || '')),
+        name,
+        taxType: classification.taxType,
+        rate: normalizeRate(row.rate),
+        rule: String(row.description || row.rule || 'Stored tax rule'),
+        source,
+        version: String(row.version || 'unknown'),
+        isEstimated: Boolean(row.isEstimated),
+        calculationBase: typeof row.calculationBase === 'string' ? row.calculationBase : 'product_value',
+        fixedAmount: Number(row.fixedAmount || 0),
+      } as TaxRuleEntry | null;
+    })
+    .filter((rule): rule is TaxRuleEntry => Boolean(rule && rule.country && /^\d{6,10}$/.test(rule.hsCode) && rule.name && SUPPORTED_TAX_TYPES.includes(rule.taxType as typeof SUPPORTED_TAX_TYPES[number]) && rule.rate !== null && rule.rate >= 0 && rule.rate <= 1))
+    .map((rule) => ({ ...rule, rate: rule.rate as number }));
 }
 
 export async function POST(request: Request) {
