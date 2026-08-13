@@ -47,7 +47,7 @@ function normalizeTaxRuleClassification(name: string, taxType: string) {
   const lowerName = normalizedName.toLowerCase();
 
   if (/(gst|vat|sales tax|value added tax)/.test(lowerName) || /(gst|vat|sales tax|value added tax)/.test(normalizedType)) {
-    return { taxType: null, skip: true };
+    return { taxType: 'tax' as const, skip: false };
   }
 
   if (/(customs duty|import duty|duty|tariff)/.test(lowerName) && normalizedType === 'tax') {
@@ -272,7 +272,7 @@ export async function POST(request: Request) {
         console.error('Tax extraction: database update failure for Gemini rules.');
       }
       const result = calculateTaxBreakdownFromRules(productValue, quantity, geminiResult.rules, 'gemini', geminiResult.version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
-      return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Calculation based on the latest rates extracted by Gemini', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
+      return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Calculation based on automatically retrieved current rates', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
     }
 
     let storedRules: TaxRuleEntry[];

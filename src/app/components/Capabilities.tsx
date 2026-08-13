@@ -9,7 +9,7 @@ export default function Capabilities() {
     },
     {
       title: 'Tax and duty extraction',
-      description: 'Use Gemini to extract the latest applicable taxes, duty rules, and rate logic before calculating the final total.',
+      description: 'Automatically retrieve applicable taxes, duty rules, and rate logic before calculating the final total.',
       icon: '🧠',
     },
     {
@@ -66,7 +66,7 @@ export default function Capabilities() {
             <div className="text-2xl">🧾</div>
             <div>
               <div className="text-sm font-medium">Tax logic</div>
-              <div className="text-xs text-gray-500">Gemini + stored rule fallback</div>
+              <div className="text-xs text-gray-500">Current rates + stored rule fallback</div>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">

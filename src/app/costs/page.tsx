@@ -131,6 +131,10 @@ const emptyProduct: ProductInfo = {
 const emptyShipment: ShipmentInfo = {
   shippingMode: 'Sea', weightKg: 0, numberOfPackages: 1, containerType: CONTAINER_TYPES[0], freightCost: 0, insuranceCost: 0,
 };
+const defaultManualRates: ManualTaxRule[] = [
+  { name: 'Customs duty', taxType: 'duty', rate: '', description: '', calculationBase: 'customs_value', fixedAmount: '' },
+  { name: 'Import VAT / GST', taxType: 'tax', rate: '', description: '', calculationBase: 'customs_value_plus_duty', fixedAmount: '' },
+];
 const inputClass =
   'w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400/60 disabled:opacity-40';
 
@@ -170,6 +174,11 @@ async function readApiResponse(response: Response): Promise<ApiResponsePayload> 
   }
 
   throw new Error('The server returned an unexpected response instead of calculation data.');
+}
+
+function professionalSourceLabel(label?: string) {
+  if (!label) return 'Tax rates used for this calculation';
+  return label.replace(/Gemini/gi, 'the automated rate service');
 }
 
 
@@ -376,7 +385,9 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
   const [route, setRoute] = useState<RouteInfo>(initialDraft.route);
   const [product, setProduct] = useState<ProductInfo>(initialDraft.product);
   const [shipment, setShipment] = useState<ShipmentInfo>(initialDraft.shipment);
-  const [manualRates, setManualRates] = useState<ManualTaxRule[]>([]);
+  const [manualRates, setManualRates] = useState<ManualTaxRule[]>(
+    reopenManualRates ? defaultManualRates.map((rule) => ({ ...rule })) : [],
+  );
   const [manualRatesOpen, setManualRatesOpen] = useState(reopenManualRates);
   const [submitting, setSubmitting] = useState(false);
   const [taxError, setTaxError] = useState<string | null>(null);
@@ -423,9 +434,11 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
       }
 
       const taxItems = Array.isArray(payload.taxes) ? payload.taxes : [];
-      const totalTaxes = taxItems.reduce((sum, tax) => sum + Number(tax.amount || 0), 0);
       const importDuty = taxItems
         .filter((tax) => String(tax.taxType || '').toLowerCase() === 'duty')
+        .reduce((sum, tax) => sum + Number(tax.amount || 0), 0);
+      const otherTaxes = taxItems
+        .filter((tax) => String(tax.taxType || '').toLowerCase() !== 'duty')
         .reduce((sum, tax) => sum + Number(tax.amount || 0), 0);
 
       const taxBreakdown = {
@@ -448,7 +461,7 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
           freight: Number(payload.freight || 0),
           insurance: Number(payload.insurance || 0),
           importDuty,
-          taxes: totalTaxes,
+          taxes: otherTaxes,
           portCharges: Number(payload.portCharges || 0),
           total: Number(payload.total || 0),
         },
@@ -491,7 +504,10 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
         {step === 3 && <ShipmentStep shipment={shipment} setShipment={setShipment} />}
         {step === 4 && <>
           <Review route={route} product={product} shipment={shipment} />
-          <ManualRatesSection open={manualRatesOpen} rules={manualRates} onToggle={() => setManualRatesOpen((open) => !open)} onChange={setManualRates} />
+          <ManualRatesSection open={manualRatesOpen} rules={manualRates} onToggle={() => {
+            if (!manualRatesOpen && manualRates.length === 0) setManualRates(defaultManualRates.map((rule) => ({ ...rule })));
+            setManualRatesOpen((open) => !open);
+          }} onChange={setManualRates} />
         </>}
         {taxError && (
           <div className="mt-6 flex items-start gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
@@ -515,8 +531,8 @@ function ManualRatesSection({ open, rules, onToggle, onChange }: { open: boolean
 
   return <div className="mt-8 border-t border-white/10 pt-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><h2 className="text-lg font-semibold">Do you know the latest applicable tax rates?</h2><p className="mt-1 text-sm text-slate-500">Enter 15 for 15%. Rates are converted to decimals before calculation: 15 → 0.15, 10 → 0.10, 7.5 → 0.075.</p></div>
-      <button type="button" onClick={onToggle} className="rounded-lg border border-amber-400/50 px-4 py-2 text-sm text-amber-300 hover:bg-amber-400/10">{open ? 'Use automatic rates' : 'Enter rates manually'}</button>
+      <div><h2 className="text-lg font-semibold">Customs duty and import taxes</h2><p className="mt-1 text-sm text-slate-500">Rates are retrieved automatically. To use confirmed rates, enter customs duty, VAT/GST, and any additional fees here. Enter 15 for 15%.</p></div>
+      <button type="button" onClick={onToggle} className="rounded-lg border border-amber-400/50 px-4 py-2 text-sm text-amber-300 hover:bg-amber-400/10">{open ? 'Use automatically retrieved rates' : 'Enter duty and tax rates'}</button>
     </div>
     {open && <div className="mt-5 space-y-4">
       {rules.map((rule, index) => <div key={index} className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -528,7 +544,7 @@ function ManualRatesSection({ open, rules, onToggle, onChange }: { open: boolean
         <Field label="Description (optional)"><input value={rule.description} onChange={(event) => update(index, { description: event.target.value })} placeholder="Short rule description" className={inputClass} /></Field>
         <button type="button" title="Remove tax rule" onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))} className="inline-flex items-center gap-2 text-sm text-red-300 hover:text-red-200"><Trash2 size={16} /> Remove rule</button>
       </div>)}
-      <button type="button" onClick={() => onChange([...rules, { name: '', taxType: 'tax', rate: '', description: '', calculationBase: 'product_value', fixedAmount: '' }])} className="inline-flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200"><Plus size={15} /> Add tax rule</button>
+      <button type="button" onClick={() => onChange([...rules, { name: '', taxType: 'fee', rate: '', description: '', calculationBase: 'customs_value', fixedAmount: '' }])} className="inline-flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200"><Plus size={15} /> Add another tax or fee</button>
       {rules.length === 0 && <p className="text-sm text-slate-500">Add at least one rule to calculate from your rates.</p>}
     </div>}
   </div>;
@@ -677,19 +693,23 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     heading('Tax breakdown');
     const taxes = calculation.taxBreakdown?.taxes?.length
       ? calculation.taxBreakdown.taxes
-      : [{ name: 'Taxes', rate: 0, amount: costs.taxes }];
-    taxes.forEach((tax) => row(`${tax.name} (${tax.rate}%)`, money(tax.amount)));
-    row('Subtotal', money(Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes)));
+      : [
+          ...(costs.importDuty > 0 ? [{ name: 'Customs duty', rate: 0, amount: costs.importDuty }] : []),
+          ...(costs.taxes > 0 ? [{ name: 'Other taxes and fees', rate: 0, amount: costs.taxes }] : []),
+        ];
+    taxes.forEach((tax) => row(`${tax.name}${tax.rate > 0 ? ` (${tax.rate}%)` : ''}`, tax.amount > 0 ? money(tax.amount) : 'No charge identified'));
+    row('Subtotal', money(Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes - costs.importDuty)));
     row('Customs value', money(Number(calculation.taxBreakdown?.customsValue ?? calculation.taxBreakdown?.subtotal ?? 0)));
-    row('Freight', money(costs.freight));
-    row('Insurance', money(costs.insurance));
-    row('Total taxes', money(costs.taxes));
+    row('Freight', costs.freight > 0 ? money(costs.freight) : 'Not provided');
+    row('Insurance', costs.insurance > 0 ? money(costs.insurance) : 'Not provided');
+    row('Customs duty', costs.importDuty > 0 ? money(costs.importDuty) : 'No charge identified');
+    row('Other taxes and fees', costs.taxes > 0 ? money(costs.taxes) : 'No charge identified');
     row('Final total', money(Number(calculation.taxBreakdown?.total ?? costs.total)));
 
     heading('Calculation basis');
     paragraph(calculation.taxSource === 'default'
       ? 'Estimated standard import rates'
-      : calculation.ruleSourceLabel || 'Tax rates used for this calculation');
+      : professionalSourceLabel(calculation.ruleSourceLabel));
     if (calculation.warning) {
       heading('Important notice');
       paragraph(calculation.warning);
@@ -716,7 +736,10 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
         taxBreakdown: calculation.taxBreakdown || {
           subtotal: costs.total,
           total: costs.total,
-          taxes: [{ name: 'Taxes', rate: 0, amount: costs.taxes }],
+          taxes: [
+            ...(costs.importDuty > 0 ? [{ name: 'Customs duty', taxType: 'duty', rate: 0, amount: costs.importDuty }] : []),
+            ...(costs.taxes > 0 ? [{ name: 'Other taxes and fees', taxType: 'tax', rate: 0, amount: costs.taxes }] : []),
+          ],
         },
         subtotal: calculation.taxBreakdown?.subtotal ?? costs.total,
         totalAmount: calculation.taxBreakdown?.total ?? costs.total,
@@ -780,7 +803,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
                 : 'Tax source unavailable'}
       </div>
       {calculation.taxSource !== 'default' && calculation.ruleSourceLabel && (
-        <span className="text-slate-400">{calculation.ruleSourceLabel}</span>
+        <span className="text-slate-400">{professionalSourceLabel(calculation.ruleSourceLabel)}</span>
       )}
     </div>
     {calculation.warning && <div className={`mb-6 flex flex-col gap-3 rounded-xl border p-4 text-sm ${calculation.isEstimated ? 'border-amber-400/60 bg-amber-400/10 text-amber-100' : 'border-yellow-400/40 bg-yellow-400/10 text-yellow-100'}`}>
@@ -795,22 +818,23 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     <Panel><h2 className="mb-4 font-semibold">Shipment specifications</h2><div className="grid grid-cols-2 gap-4 sm:grid-cols-4"><Info label="Shipping mode" value={shipment.shippingMode} /><Info label="Weight" value={`${shipment.weightKg} kg`} /><Info label="Packages" value={`${shipment.numberOfPackages}`} /><Info label="Container" value={shipment.containerType} /></div></Panel>
     <div className="mt-6"><Panel><h2 className="mb-4 font-semibold">Tax breakdown</h2>
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {(calculation.taxBreakdown?.taxes && calculation.taxBreakdown.taxes.length > 0 ? calculation.taxBreakdown.taxes : [{ name: 'Taxes', rate: 0, amount: costs.taxes }]).map((tax, index) => (
+        {(calculation.taxBreakdown?.taxes || []).map((tax, index) => (
           <div key={`${tax.name}-${index}`} className="rounded-lg border border-white/10 bg-black/20 p-4">
             <p className="text-sm text-slate-500">{tax.name}</p>
-            <p className="mt-1 text-xl font-bold">{money(tax.amount)}</p>
-            <p className="mt-1 text-xs text-slate-400">Rate: {tax.rate}%</p>
+            <p className="mt-1 text-xl font-bold">{tax.amount > 0 ? money(tax.amount) : 'No charge identified'}</p>
+            <p className="mt-1 text-xs text-slate-400">{tax.rate > 0 ? `Rate: ${tax.rate}%` : 'Duty-free or not applicable'}</p>
             {tax.calculationBase && <p className="mt-1 text-xs text-slate-500">Base: {tax.calculationBase.replaceAll('_', ' ')}</p>}
             {Number(tax.fixedAmount || 0) > 0 && <p className="mt-1 text-xs text-slate-500">Fixed charge: {money(Number(tax.fixedAmount))}</p>}
           </div>
         ))}
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Cost label="Subtotal" value={Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes)} />
+        <Cost label="Subtotal" value={Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes - costs.importDuty)} />
         <Cost label="Customs value" value={Number(calculation.taxBreakdown?.customsValue ?? calculation.taxBreakdown?.subtotal ?? 0)} />
-        <Cost label="Freight" value={costs.freight} />
-        <Cost label="Insurance" value={costs.insurance} />
-        <Cost label="Taxes" value={costs.taxes} />
+        <Cost label="Freight" value={costs.freight} emptyLabel="Not provided" />
+        <Cost label="Insurance" value={costs.insurance} emptyLabel="Not provided" />
+        <Cost label="Customs duty" value={costs.importDuty} emptyLabel="No charge identified" />
+        <Cost label="Other taxes and fees" value={costs.taxes} emptyLabel="No charge identified" />
         <Cost label="Final total" value={Number(calculation.taxBreakdown?.total ?? costs.total)} emphasized />
       </div>
       <div className="mt-6 rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -818,7 +842,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
         <p className="mt-2">
           {calculation.taxSource === 'default'
             ? 'Estimated standard import rates'
-            : calculation.ruleSourceLabel || 'Tax rates used for this calculation'}
+            : professionalSourceLabel(calculation.ruleSourceLabel)}
         </p>
       </div>
     </Panel></div>
@@ -863,7 +887,7 @@ function SelectField({ label, value, onChange, options, placeholder, disabled }:
 }
 function ReviewCard({ label, children }: { label: string; children: React.ReactNode }) { return <div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="mb-2 text-xs uppercase tracking-wide text-slate-500">{label}</p><div className="font-medium">{children}</div></div>; }
 function Info({ label, value }: { label: string; value: string }) { return <div className="mb-3 last:mb-0"><p className="text-xs text-slate-500">{label}</p><p className="font-medium">{value}</p></div>; }
-function Cost({ label, value, emphasized }: { label: string; value: number; emphasized?: boolean }) { return <div className={`rounded-lg border p-4 ${emphasized ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-black/20'}`}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-xl font-bold">{money(value)}</p></div>; }
+function Cost({ label, value, emphasized, emptyLabel }: { label: string; value: number; emphasized?: boolean; emptyLabel?: string }) { return <div className={`rounded-lg border p-4 ${emphasized ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-black/20'}`}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-xl font-bold">{value === 0 && emptyLabel ? emptyLabel : money(value)}</p></div>; }
 
 
 function canContinue(step: number, route: RouteInfo, product: ProductInfo, shipment: ShipmentInfo) {

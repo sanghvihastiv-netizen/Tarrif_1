@@ -95,14 +95,12 @@ export async function ensureDefaultTaxRules(country: string, hsCode: string) {
     const references = defaults.map((rule) => firestore.collection('taxRules').doc(documentId(rule)));
     const snapshots = await transaction.getAll(...references);
     snapshots.forEach((snapshot, index) => {
-      if (!snapshot.exists) {
-        transaction.create(snapshot.ref, {
-          ...firestoreData(defaults[index]),
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-          effectiveFrom: FieldValue.serverTimestamp(),
-        });
-      }
+      transaction.set(snapshot.ref, {
+        ...firestoreData(defaults[index]),
+        ...(!snapshot.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+        effectiveFrom: FieldValue.serverTimestamp(),
+      }, { merge: true });
     });
   });
 }
