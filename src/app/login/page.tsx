@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Mail, Lock, GitBranch, Globe } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 
 
 export default function LoginPage() {
@@ -15,7 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
  
-  const { signInWithEmail, signInWithGoogle, signInWithGithub, user, loading: authLoading } = useAuth();
+  const { signInWithEmail, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
 
@@ -35,39 +35,9 @@ export default function LoginPage() {
     try {
       await signInWithEmail(email, password);
       router.replace('/costs');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      setError(err.message || 'Failed to sign in');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const handleGoogleLogin = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await signInWithGoogle();
-      router.replace('/schedules');
-    } catch (err: any) {
-      console.error('Google login error:', err);
-      setError('Failed to sign in with Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const handleGithubLogin = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await signInWithGithub();
-      router.replace('/schedules');
-    } catch (err: any) {
-      console.error('Github login error:', err);
-      setError('Failed to sign in with GitHub');
+      setError(err instanceof Error ? err.message : 'Failed to sign in');
     } finally {
       setLoading(false);
     }
@@ -150,14 +120,11 @@ export default function LoginPage() {
           </div>
 
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <label className="flex items-center gap-2 text-sm text-gray-400">
               <input type="checkbox" className="rounded border-white/20 bg-white/5" />
               Remember me
             </label>
-            <Link href="/forgot-password" className="text-sm text-amber-400 hover:text-amber-300 transition">
-              Forgot password?
-            </Link>
           </div>
 
 
@@ -171,41 +138,9 @@ export default function LoginPage() {
         </form>
 
 
-        {/* Divider */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-white/10"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-black text-gray-500">Or continue with</span>
-          </div>
-        </div>
-
-
-        {/* Social Login */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 text-white transition disabled:opacity-50"
-          >
-            <Globe className="w-5 h-5" />
-            <span className="text-sm">Google</span>
-          </button>
-          <button
-            onClick={handleGithubLogin}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 text-white transition disabled:opacity-50"
-          >
-            <GitBranch className="w-5 h-5" />
-            <span className="text-sm">GitHub</span>
-          </button>
-        </div>
-
-
         {/* Sign Up Link */}
         <p className="text-center text-sm text-gray-400 mt-6">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/signup" className="text-amber-400 hover:text-amber-300 font-medium transition">
             Create one now
           </Link>

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getAdminAuth } from '@/lib/firebase-admin';
 import {
   calculateTaxBreakdownFromRules,
   ensureDefaultTaxRules,
@@ -13,7 +14,10 @@ import {
   type TaxRuleEntry,
 } from '@/lib/tax';
 
+export const runtime = 'nodejs';
+
 const GEMINI_TIMEOUT_MS = 8_000;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const DEFAULT_WARNING = "We couldn't extract the latest tax rates, and no matching verified rates were found. This result uses estimated default rates of 15% import duty and 10% import tax. You can enter the latest rates manually and recalculate.";
 
 type InputData = {
@@ -24,6 +28,17 @@ type InputData = {
 
 function fieldError(field: string, message: string) {
   return NextResponse.json({ error: message, field, errors: { [field]: message } }, { status: 400 });
+}
+
+async function isAuthenticated(request: Request) {
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ')) return false;
+  try {
+    await getAdminAuth().verifyIdToken(authorization.slice('Bearer '.length).trim());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validateInput(payload: Record<string, unknown>) {
@@ -51,6 +66,10 @@ function validateInput(payload: Record<string, unknown>) {
     const value = Number(shipmentData[field]);
     if (!Number.isFinite(value) || value <= 0) return { response: fieldError(`shipment.${field}`, `${field} must be a valid number greater than zero.`) };
   }
+  for (const field of ['freightCost', 'insuranceCost']) {
+    const value = Number(shipmentData[field] ?? 0);
+    if (!Number.isFinite(value) || value < 0) return { response: fieldError(`shipment.${field}`, `${field} must be zero or a positive number.`) };
+  }
 
   return {
     data: { route: routeData, product: productData, shipment: shipmentData, hsCode, productValue, quantity } as InputData & { hsCode: string; productValue: number; quantity: number },
@@ -71,9 +90,13 @@ function validateUserRules(raw: unknown, country: string, hsCode: string) {
     const name = typeof entry.name === 'string' ? entry.name.trim() : '';
     const taxType = typeof entry.taxType === 'string' ? entry.taxType.trim().toLowerCase() : '';
     const rate = normalizeRate(entry.rate);
+    const calculationBase = typeof entry.calculationBase === 'string' ? entry.calculationBase : 'product_value';
+    const fixedAmount = Number(entry.fixedAmount ?? 0);
     if (!name) return { error: `userTaxRules[${index}].name is required.` };
     if (!SUPPORTED_TAX_TYPES.includes(taxType as typeof SUPPORTED_TAX_TYPES[number])) return { error: `userTaxRules[${index}].taxType must be duty, tax, or fee.` };
     if (rate === null) return { error: `userTaxRules[${index}].rate must be between 0% and 100%.` };
+    if (!['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase)) return { error: `userTaxRules[${index}].calculationBase is invalid.` };
+    if (!Number.isFinite(fixedAmount) || fixedAmount < 0) return { error: `userTaxRules[${index}].fixedAmount must be zero or greater.` };
     const duplicateKey = `${name.toLowerCase()}::${taxType}`;
     if (seen.has(duplicateKey)) return { error: `Duplicate tax rule: ${name} (${taxType}).` };
     seen.add(duplicateKey);
@@ -86,6 +109,8 @@ function validateUserRules(raw: unknown, country: string, hsCode: string) {
       rule: typeof entry.description === 'string' ? entry.description.trim() : '',
       source: 'user',
       version: 'user-v1',
+      calculationBase: calculationBase as TaxRuleEntry['calculationBase'],
+      fixedAmount,
     });
   }
   return { rules };
@@ -107,10 +132,12 @@ function normalizeGeminiRules(raw: unknown, country: string, hsCode: string) {
     const taxType = typeof entry.taxType === 'string' ? entry.taxType.trim().toLowerCase() : '';
     const rule = typeof entry.rule === 'string' ? entry.rule.trim() : '';
     const rate = normalizeRate(entry.rate);
+    const calculationBase = typeof entry.calculationBase === 'string' ? entry.calculationBase : 'product_value';
+    const fixedAmount = Number(entry.fixedAmount ?? 0);
     const duplicateKey = `${name.toLowerCase()}::${taxType}`;
-    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !SUPPORTED_TAX_TYPES.includes(taxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || seen.has(duplicateKey)) continue;
+    if (!version || !entryCountry || normalizeCountry(entryCountry) !== normalizeCountry(country) || entryHsCode !== hsCode || !name || !rule || !SUPPORTED_TAX_TYPES.includes(taxType as typeof SUPPORTED_TAX_TYPES[number]) || rate === null || !['product_value', 'customs_value', 'customs_value_plus_duty'].includes(calculationBase) || !Number.isFinite(fixedAmount) || fixedAmount < 0 || seen.has(duplicateKey)) continue;
     seen.add(duplicateKey);
-    rules.push({ country: entryCountry, hsCode, name, taxType, rate, rule, source: 'gemini', version });
+    rules.push({ country: entryCountry, hsCode, name, taxType, rate, rule, source: 'gemini', version, calculationBase: calculationBase as TaxRuleEntry['calculationBase'], fixedAmount });
   }
   return rules.length ? { version, rules } : null;
 }
@@ -121,11 +148,11 @@ async function extractWithGemini(input: InputData, country: string, hsCode: stri
     console.warn('Tax extraction: missing Gemini key.');
     return null;
   }
-  const prompt = `Extract the latest applicable import tax rules for this shipment. Return JSON only, with no markdown, matching this shape: {"version":"string","taxRules":[{"country":"exact destination country","hsCode":"normalized HS code","name":"tax name","taxType":"duty|tax|fee","rate":0.15,"rule":"short rule description"}]}\nShipment: ${JSON.stringify(input)}`;
+  const prompt = `Extract the latest applicable import tax rules for this shipment. Return JSON only, with no markdown, matching this shape: {"version":"string","taxRules":[{"country":"exact destination country","hsCode":"normalized HS code","name":"tax name","taxType":"duty|tax|fee","rate":0.15,"fixedAmount":0,"calculationBase":"product_value|customs_value|customs_value_plus_duty","rule":"short rule description"}]} Use customs_value for a rate applied to product value plus freight and insurance. Use customs_value_plus_duty for VAT/GST applied after duty.\nShipment: ${JSON.stringify(input)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   try {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 800, responseMimeType: 'application/json' } }),
@@ -177,6 +204,8 @@ function rulesFromRows(rows: Array<Record<string, unknown>>, source: 'database' 
       source,
       version: String(row.version || 'unknown'),
       isEstimated: Boolean(row.isEstimated),
+      calculationBase: typeof row.calculationBase === 'string' ? row.calculationBase : 'product_value',
+      fixedAmount: Number(row.fixedAmount || 0),
     }))
     .filter((rule) => Boolean(rule.country && /^\d{6,10}$/.test(rule.hsCode) && rule.name && SUPPORTED_TAX_TYPES.includes(rule.taxType as typeof SUPPORTED_TAX_TYPES[number]) && rule.rate !== null && rule.rate >= 0 && rule.rate <= 1))
     .map((rule) => ({ ...rule, rate: rule.rate as number } as TaxRuleEntry));
@@ -184,6 +213,10 @@ function rulesFromRows(rows: Array<Record<string, unknown>>, source: 'database' 
 
 export async function POST(request: Request) {
   try {
+    if (!await isAuthenticated(request)) {
+      return NextResponse.json({ error: 'Please sign in before calculating taxes.' }, { status: 401 });
+    }
+
     const body = await request.json();
     const payload = body && typeof body === 'object' ? body as Record<string, unknown> : {};
     const validation = validateInput(payload);
@@ -194,7 +227,7 @@ export async function POST(request: Request) {
     if (userRules.error) return fieldError('userTaxRules', userRules.error);
 
     if (userRules.rules?.length) {
-      const result = calculateTaxBreakdownFromRules(productValue, quantity, userRules.rules, 'user', 'user-v1');
+      const result = calculateTaxBreakdownFromRules(productValue, quantity, userRules.rules, 'user', 'user-v1', Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
       return NextResponse.json({ ...result, taxSource: 'user', sourceLabel: 'Calculation based on rates entered by the user', isEstimated: false, latestRatesExtracted: false, allowManualRates: true, warning: null });
     }
 
@@ -205,7 +238,7 @@ export async function POST(request: Request) {
       } catch {
         console.error('Tax extraction: database update failure for Gemini rules.');
       }
-      const result = calculateTaxBreakdownFromRules(productValue, quantity, geminiResult.rules, 'gemini', geminiResult.version);
+      const result = calculateTaxBreakdownFromRules(productValue, quantity, geminiResult.rules, 'gemini', geminiResult.version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
       return NextResponse.json({ ...result, taxSource: 'gemini', sourceLabel: 'Calculation based on the latest rates extracted by Gemini', isEstimated: false, latestRatesExtracted: true, allowManualRates: true, warning: null });
     }
 
@@ -217,7 +250,7 @@ export async function POST(request: Request) {
       storedRules = [];
     }
     if (storedRules.length) {
-      const result = calculateTaxBreakdownFromRules(productValue, quantity, storedRules, 'database', storedRules[0].version);
+      const result = calculateTaxBreakdownFromRules(productValue, quantity, storedRules, 'database', storedRules[0].version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
       return NextResponse.json({ ...result, taxSource: 'database', sourceLabel: 'Previously stored matching rates', isEstimated: false, latestRatesExtracted: false, allowManualRates: true, warning: STORED_WARNING });
     }
 
@@ -225,7 +258,7 @@ export async function POST(request: Request) {
       await ensureDefaultTaxRules(country, hsCode);
       const defaultRules = rulesFromRows(await getStoredTaxRules(country, hsCode, 'fallback') as Array<Record<string, unknown>>, 'default');
       if (defaultRules.length) {
-        const result = calculateTaxBreakdownFromRules(productValue, quantity, defaultRules, 'default', defaultRules[0].version);
+        const result = calculateTaxBreakdownFromRules(productValue, quantity, defaultRules, 'default', defaultRules[0].version, Number(shipment.freightCost || 0), Number(shipment.insuranceCost || 0));
         return NextResponse.json({ ...result, taxSource: 'default', sourceLabel: 'Estimated database fallback', isEstimated: true, latestRatesExtracted: false, allowManualRates: true, warning: DEFAULT_WARNING });
       }
     } catch {

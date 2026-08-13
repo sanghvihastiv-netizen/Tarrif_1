@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Mail, Lock, User, GitBranch, Globe } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 
 
 export default function SignUpPage() {
@@ -19,7 +19,7 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
  
-  const { signUpWithEmail, signInWithGoogle, signInWithGithub, user, loading: authLoading } = useAuth();
+  const { signUpWithEmail, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
 
@@ -59,40 +59,10 @@ export default function SignUpPage() {
 
     try {
       await signUpWithEmail(email, password, name);
-      router.replace('/schedules');
-    } catch (err: any) {
+      router.replace('/costs');
+    } catch (err: unknown) {
       console.error('Sign up error:', err);
-      setError(err.message || 'Failed to create account');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const handleGoogleSignUp = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await signInWithGoogle();
-      router.replace('/schedules');
-    } catch (err: any) {
-      console.error('Google sign up error:', err);
-      setError('Failed to sign up with Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const handleGithubSignUp = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await signInWithGithub();
-      router.replace('/schedules');
-    } catch (err: any) {
-      console.error('Github sign up error:', err);
-      setError('Failed to sign up with GitHub');
+      setError(err instanceof Error ? err.message : 'Failed to create account');
     } finally {
       setLoading(false);
     }
@@ -230,11 +200,7 @@ export default function SignUpPage() {
             <label className="text-sm text-gray-400">
               I agree to the{' '}
               <Link href="/terms" className="text-amber-400 hover:text-amber-300 transition">
-                Terms of Service
-              </Link>
-              {' '}and{' '}
-              <Link href="/privacy" className="text-amber-400 hover:text-amber-300 transition">
-                Privacy Policy
+                Terms and Conditions
               </Link>
             </label>
           </div>
@@ -248,38 +214,6 @@ export default function SignUpPage() {
             {loading ? 'Creating account...' : 'Create Account'}
           </button>
         </form>
-
-
-        {/* Divider */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-white/10"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-black text-gray-500">Or continue with</span>
-          </div>
-        </div>
-
-
-        {/* Social Sign Up */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={handleGoogleSignUp}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 text-white transition disabled:opacity-50"
-          >
-            <Globe className="w-5 h-5" />
-            <span className="text-sm">Google</span>
-          </button>
-          <button
-            onClick={handleGithubSignUp}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 text-white transition disabled:opacity-50"
-          >
-            <GitBranch className="w-5 h-5" />
-            <span className="text-sm">GitHub</span>
-          </button>
-        </div>
 
 
         {/* Login Link */}

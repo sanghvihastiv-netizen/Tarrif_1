@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { firebaseAuth } from '@/lib/firebase';
 import {
@@ -49,6 +50,8 @@ interface ShipmentInfo {
   weightKg: number;
   numberOfPackages: number;
   containerType: string;
+  freightCost?: number;
+  insuranceCost?: number;
 }
 
 type ManualTaxRule = {
@@ -56,6 +59,8 @@ type ManualTaxRule = {
   taxType: 'duty' | 'tax' | 'fee';
   rate: string;
   description: string;
+  calculationBase: 'product_value' | 'customs_value' | 'customs_value_plus_duty';
+  fixedAmount: string;
 };
 
 
@@ -76,7 +81,6 @@ interface Calculation {
   product: ProductInfo;
   shipment: ShipmentInfo;
   costs: CostBreakdown;
-  estimatedTransitTime: string;
   taxSource?: string;
   taxVersion?: string;
   ruleSourceLabel?: string;
@@ -84,8 +88,9 @@ interface Calculation {
   warning?: string | null;
   taxBreakdown?: {
     subtotal?: number;
+    customsValue?: number;
     total?: number;
-    taxes?: Array<{ name: string; taxType?: string; rate: number; amount: number; calculationBase?: string }>;
+    taxes?: Array<{ name: string; taxType?: string; rate: number; amount: number; calculationBase?: string; taxableAmount?: number; fixedAmount?: number }>;
     source?: string;
     version?: string;
     rules?: Array<{ name: string; rate: number; country: string; hsCode: string; rule?: string }>;
@@ -124,25 +129,68 @@ const emptyProduct: ProductInfo = {
   productName: '', hsCode: '', countryOfOrigin: '', quantity: 1, productValue: 0,
 };
 const emptyShipment: ShipmentInfo = {
-  shippingMode: 'Sea', weightKg: 0, numberOfPackages: 1, containerType: CONTAINER_TYPES[0],
+  shippingMode: 'Sea', weightKg: 0, numberOfPackages: 1, containerType: CONTAINER_TYPES[0], freightCost: 0, insuranceCost: 0,
 };
 const inputClass =
   'w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400/60 disabled:opacity-40';
 
+type ApiResponsePayload = {
+  error?: string;
+  duplicate?: boolean;
+  subtotal?: number;
+  customsValue?: number;
+  total?: number;
+  taxes?: Array<{ name: string; taxType?: string; rate: number; amount: number; calculationBase?: string; taxableAmount?: number; fixedAmount?: number }>;
+  rules?: Array<{ name: string; rate: number; country: string; hsCode: string; rule?: string }>;
+  taxSource?: string;
+  version?: string;
+  freight?: number;
+  insurance?: number;
+  importDuty?: number;
+  portCharges?: number;
+  sourceLabel?: string;
+  isEstimated?: boolean;
+  warning?: string | null;
+};
+
+async function readApiResponse(response: Response): Promise<ApiResponsePayload> {
+  const contentType = response.headers.get('content-type') || '';
+  const text = await response.text();
+
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(text) as ApiResponsePayload;
+    } catch {
+      throw new Error('The server returned an invalid JSON response. Please redeploy and try again.');
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`The calculation service is unavailable (${response.status}). Check the Vercel function logs and Firebase environment variables.`);
+  }
+
+  throw new Error('The server returned an unexpected response instead of calculation data.');
+}
+
 
 export default function CostsPage() {
+  const router = useRouter();
   const [view, setView] = useState<View>('dashboard');
   const [calculations, setCalculations] = useState<Calculation[]>([]);
   const [selected, setSelected] = useState<Calculation | null>(null);
   const [calculatorDraft, setCalculatorDraft] = useState({ route: emptyRoute, product: emptyProduct, shipment: emptyShipment });
   const [reopenManualRates, setReopenManualRates] = useState(false);
-  const { user, signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
 
 
   useEffect(() => {
     const timer = window.setTimeout(() => setCalculations(readCalculations()), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace('/login');
+  }, [loading, router, user]);
 
 
   function refresh() {
@@ -162,6 +210,10 @@ export default function CostsPage() {
     } catch (error) {
       console.error('Error signing out:', error);
     }
+  }
+
+  if (loading || !user) {
+    return <main className="grid min-h-screen place-items-center bg-[#05080d] text-sm text-slate-400">Checking authentication...</main>;
   }
 
 
@@ -349,14 +401,22 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
         taxType: rule.taxType,
         rate: rule.rate,
         description: rule.description,
+        calculationBase: rule.calculationBase,
+        fixedAmount: rule.fixedAmount,
       })) : [];
+      const firebaseUser = firebaseAuth.currentUser;
+      if (!firebaseUser) throw new Error('Please sign in before calculating taxes.');
+      const idToken = await firebaseUser.getIdToken();
       const response = await fetch('/api/tax/calculate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({ route, product, shipment, userTaxRules }),
       });
 
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
 
       if (!response.ok) {
         throw new Error(payload?.error || 'Tax extraction failed.');
@@ -364,6 +424,7 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
 
       const taxBreakdown = {
         subtotal: Number(payload.subtotal || 0),
+        customsValue: Number(payload.customsValue || payload.subtotal || 0),
         total: Number(payload.total || 0),
         taxes: Array.isArray(payload.taxes) ? payload.taxes : [],
         source: payload.taxSource || 'database',
@@ -385,7 +446,6 @@ function CalculatorView({ onCancel, onComplete, initialDraft, onDraftChange, reo
           portCharges: Number(payload.portCharges || 0),
           total: Number(payload.total || 0),
         },
-        estimatedTransitTime: { Sea: '15-30 days', Air: '2-5 days', Road: '5-10 days' }[shipment.shippingMode],
       };
 
       const finalCalculation = {
@@ -453,14 +513,16 @@ function ManualRatesSection({ open, rules, onToggle, onChange }: { open: boolean
       <button type="button" onClick={onToggle} className="rounded-lg border border-amber-400/50 px-4 py-2 text-sm text-amber-300 hover:bg-amber-400/10">{open ? 'Use automatic rates' : 'Enter rates manually'}</button>
     </div>
     {open && <div className="mt-5 space-y-4">
-      {rules.map((rule, index) => <div key={index} className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4 sm:grid-cols-[1.4fr_1fr_0.8fr_1.5fr_auto] sm:items-end">
+      {rules.map((rule, index) => <div key={index} className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Tax name"><input value={rule.name} onChange={(event) => update(index, { name: event.target.value })} placeholder="Import duty" className={inputClass} /></Field>
         <Field label="Tax type"><select value={rule.taxType} onChange={(event) => update(index, { taxType: event.target.value as ManualTaxRule['taxType'] })} className={inputClass}><option value="duty">Duty</option><option value="tax">Tax</option><option value="fee">Fee</option></select></Field>
         <Field label="Rate (%)"><input type="number" min="0" max="100" step="0.01" value={rule.rate} onChange={(event) => update(index, { rate: event.target.value })} placeholder="15" className={inputClass} /></Field>
+        <Field label="Applied to"><select value={rule.calculationBase} onChange={(event) => update(index, { calculationBase: event.target.value as ManualTaxRule['calculationBase'] })} className={inputClass}><option value="product_value">Product value</option><option value="customs_value">Product + freight + insurance</option><option value="customs_value_plus_duty">Customs value + duty</option></select></Field>
+        <Field label="Fixed charge (USD)"><input type="number" min="0" step="0.01" value={rule.fixedAmount} onChange={(event) => update(index, { fixedAmount: event.target.value })} placeholder="0" className={inputClass} /></Field>
         <Field label="Description (optional)"><input value={rule.description} onChange={(event) => update(index, { description: event.target.value })} placeholder="Short rule description" className={inputClass} /></Field>
-        <button type="button" title="Remove tax rule" onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))} className="p-2 text-red-300 hover:text-red-200"><Trash2 size={16} /></button>
+        <button type="button" title="Remove tax rule" onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))} className="inline-flex items-center gap-2 text-sm text-red-300 hover:text-red-200"><Trash2 size={16} /> Remove rule</button>
       </div>)}
-      <button type="button" onClick={() => onChange([...rules, { name: '', taxType: 'tax', rate: '', description: '' }])} className="inline-flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200"><Plus size={15} /> Add tax rule</button>
+      <button type="button" onClick={() => onChange([...rules, { name: '', taxType: 'tax', rate: '', description: '', calculationBase: 'product_value', fixedAmount: '' }])} className="inline-flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200"><Plus size={15} /> Add tax rule</button>
       {rules.length === 0 && <p className="text-sm text-slate-500">Add at least one rule to calculate from your rates.</p>}
     </div>}
   </div>;
@@ -495,6 +557,8 @@ function ShipmentStep({ shipment, setShipment }: { shipment: ShipmentInfo; setSh
     <div className="grid gap-5 sm:grid-cols-2">
       <Field label="Weight (kg)"><input type="number" min="0" value={shipment.weightKg} onChange={(event) => setShipment({ ...shipment, weightKg: Number(event.target.value) })} className={inputClass} /></Field>
       <Field label="Number of packages"><input type="number" min="1" value={shipment.numberOfPackages} onChange={(event) => setShipment({ ...shipment, numberOfPackages: Number(event.target.value) })} className={inputClass} /></Field>
+      <Field label="Freight cost (USD)"><input type="number" min="0" step="0.01" value={shipment.freightCost ?? 0} onChange={(event) => setShipment({ ...shipment, freightCost: Number(event.target.value) })} className={inputClass} /></Field>
+      <Field label="Insurance cost (USD)"><input type="number" min="0" step="0.01" value={shipment.insuranceCost ?? 0} onChange={(event) => setShipment({ ...shipment, insuranceCost: Number(event.target.value) })} className={inputClass} /></Field>
       <div className="sm:col-span-2"><SelectField label="Container type" value={shipment.containerType} onChange={(value) => setShipment({ ...shipment, containerType: value })} options={CONTAINER_TYPES} /></div>
     </div>
   </FormSection>;
@@ -506,7 +570,7 @@ function Review({ route, product, shipment }: { route: RouteInfo; product: Produ
     <ReviewCard label="Route">{route.originPort}, {route.originCountry}<br /><span className="text-slate-500">to</span><br />{route.destinationPort}, {route.destinationCountry}</ReviewCard>
     <ReviewCard label="Shipping date">{route.shippingDate}</ReviewCard>
     <ReviewCard label="Product">{product.productName}<p className="text-sm text-slate-500">HS code: {product.hsCode}</p></ReviewCard>
-    <ReviewCard label="Shipment">{shipment.shippingMode}<p className="text-sm text-slate-500">{shipment.weightKg}kg, {shipment.numberOfPackages} packages</p></ReviewCard>
+    <ReviewCard label="Shipment">{shipment.shippingMode}<p className="text-sm text-slate-500">{shipment.weightKg}kg, {shipment.numberOfPackages} packages</p><p className="text-sm text-slate-500">Freight: {money(shipment.freightCost || 0)} · Insurance: {money(shipment.insuranceCost || 0)}</p></ReviewCard>
   </div></FormSection>;
 }
 
@@ -516,6 +580,120 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
+
+  async function exportPdf() {
+    const { jsPDF } = await import('jspdf');
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 16;
+    const contentWidth = pageWidth - margin * 2;
+    let y = 18;
+
+    const ensureSpace = (height: number) => {
+      if (y + height <= pageHeight - margin) return;
+      pdf.addPage();
+      y = margin;
+    };
+    const heading = (text: string) => {
+      ensureSpace(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(14);
+      pdf.setTextColor(24, 24, 27);
+      pdf.text(text, margin, y);
+      y += 8;
+    };
+    const row = (label: string, value: string) => {
+      ensureSpace(8);
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(100, 116, 139);
+      pdf.text(label, margin, y);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(24, 24, 27);
+      pdf.text(value || '-', pageWidth - margin, y, { align: 'right' });
+      pdf.setDrawColor(226, 232, 240);
+      pdf.line(margin, y + 2.5, pageWidth - margin, y + 2.5);
+      y += 7;
+    };
+    const paragraph = (text: string) => {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(71, 85, 105);
+      const lines = pdf.splitTextToSize(text, contentWidth) as string[];
+      ensureSpace(lines.length * 4.5 + 4);
+      pdf.text(lines, margin, y);
+      y += lines.length * 4.5 + 4;
+    };
+
+    pdf.setFillColor(15, 23, 42);
+    pdf.rect(0, 0, pageWidth, 38, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(21);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text('TariffWars', margin, 16);
+    pdf.setFontSize(13);
+    pdf.text('Shipping cost estimate', margin, 27);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    pdf.setTextColor(203, 213, 225);
+    pdf.text(`Calculated on ${calculation.createdAt}`, pageWidth - margin, 27, { align: 'right' });
+    y = 49;
+
+    pdf.setFillColor(251, 191, 36);
+    pdf.roundedRect(margin, y, contentWidth, 22, 2, 2, 'F');
+    pdf.setTextColor(24, 24, 27);
+    pdf.setFontSize(9);
+    pdf.text('TOTAL ESTIMATED COST', margin + 6, y + 7);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(20);
+    pdf.text(money(costs.total), margin + 6, y + 17);
+    y += 31;
+
+    heading('Shipping route');
+    row('From', `${route.originPort}, ${route.originCountry}`);
+    row('To', `${route.destinationPort}, ${route.destinationCountry}`);
+    row('Shipping date', route.shippingDate);
+
+    heading('Product details');
+    row('Product', product.productName);
+    row('HS code', product.hsCode);
+    row('Country of origin', product.countryOfOrigin);
+    row('Quantity', `${product.quantity} units`);
+    row('Product value', money(product.productValue));
+
+    heading('Shipment specifications');
+    row('Shipping mode', shipment.shippingMode);
+    row('Weight', `${shipment.weightKg} kg`);
+    row('Packages', String(shipment.numberOfPackages));
+    row('Container', shipment.containerType);
+
+    heading('Tax breakdown');
+    const taxes = calculation.taxBreakdown?.taxes?.length
+      ? calculation.taxBreakdown.taxes
+      : [{ name: 'Taxes', rate: 0, amount: costs.taxes }];
+    taxes.forEach((tax) => row(`${tax.name} (${tax.rate}%)`, money(tax.amount)));
+    row('Subtotal', money(Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes)));
+    row('Customs value', money(Number(calculation.taxBreakdown?.customsValue ?? calculation.taxBreakdown?.subtotal ?? 0)));
+    row('Freight', money(costs.freight));
+    row('Insurance', money(costs.insurance));
+    row('Total taxes', money(costs.taxes));
+    row('Final total', money(Number(calculation.taxBreakdown?.total ?? costs.total)));
+
+    heading('Calculation basis');
+    paragraph(calculation.taxSource === 'default'
+      ? 'Estimated standard import rates'
+      : calculation.ruleSourceLabel || 'Tax rates used for this calculation');
+    if (calculation.warning) {
+      heading('Important notice');
+      paragraph(calculation.warning);
+    }
+
+    const filename = `tariff-cost-${product.productName || product.hsCode || 'calculation'}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-');
+    pdf.save(`${filename}.pdf`);
+  }
 
   async function saveCalculation() {
     setSaving(true);
@@ -551,7 +729,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
         body: JSON.stringify(body),
       });
 
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload?.error || 'Unable to save calculation.');
 
       setSaveState('success');
@@ -569,10 +747,13 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
   }
 
   return <>
-    <button onClick={onBack} className="mb-6 text-sm text-slate-400 hover:text-white">← Back to dashboard</button>
-    <PageHeading title="Shipping cost estimate" subtitle={`Calculated on ${calculation.createdAt}`}>
-      <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm"><Download size={16} /> Export as PDF</button>
-    </PageHeading>
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <button onClick={onBack} className="text-sm text-slate-400 hover:text-white">← Back to dashboard</button>
+      <button onClick={exportPdf} className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm"><Download size={16} /> Export as PDF</button>
+    </div>
+
+    <section>
+    <PageHeading title="Shipping cost estimate" subtitle={`Calculated on ${calculation.createdAt}`} />
 
     <div className="mb-6 rounded-2xl bg-amber-400 p-6 text-black">
       <p className="text-sm">Total estimated cost</p>
@@ -583,17 +764,18 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
       <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1 text-emerald-300">
         <CheckCircle size={14} />
         {calculation.taxSource === 'user'
-          ? 'Used rates entered by you'
+          ? 'Rates entered by you'
           : calculation.taxSource === 'gemini'
-            ? 'Used Gemini extraction'
+            ? 'Latest available import rates'
             : calculation.taxSource === 'database'
-              ? 'Used saved tax table'
+              ? 'Previously stored matching rates'
               : calculation.taxSource === 'default'
-                ? 'Used estimated default rates'
+                ? 'Estimated standard import rates'
                 : 'Tax source unavailable'}
       </div>
-      <span className="text-slate-400">Version: {calculation.taxVersion || 'unknown'}</span>
-      <span className="text-slate-400">{calculation.ruleSourceLabel || 'Tax source'}</span>
+      {calculation.taxSource !== 'default' && calculation.ruleSourceLabel && (
+        <span className="text-slate-400">{calculation.ruleSourceLabel}</span>
+      )}
     </div>
     {calculation.warning && <div className={`mb-6 flex flex-col gap-3 rounded-xl border p-4 text-sm ${calculation.isEstimated ? 'border-amber-400/60 bg-amber-400/10 text-amber-100' : 'border-yellow-400/40 bg-yellow-400/10 text-yellow-100'}`}>
       <div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0" /><p>{calculation.warning}</p></div>
@@ -601,7 +783,7 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
     </div>}
 
     <div className="mb-6 grid gap-4 sm:grid-cols-2">
-      <Panel><h2 className="mb-4 font-semibold">Shipping route</h2><Info label="From" value={`${route.originPort}, ${route.originCountry}`} /><Info label="To" value={`${route.destinationPort}, ${route.destinationCountry}`} /><Info label="Shipping date" value={route.shippingDate} /><Info label="Estimated transit time" value={calculation.estimatedTransitTime} /></Panel>
+      <Panel><h2 className="mb-4 font-semibold">Shipping route</h2><Info label="From" value={`${route.originPort}, ${route.originCountry}`} /><Info label="To" value={`${route.destinationPort}, ${route.destinationCountry}`} /><Info label="Shipping date" value={route.shippingDate} /></Panel>
       <Panel><h2 className="mb-4 font-semibold">Product details</h2><Info label="Product" value={product.productName} /><Info label="HS code" value={product.hsCode} /><Info label="Quantity" value={`${product.quantity} units`} /><Info label="Product value" value={money(product.productValue)} /></Panel>
     </div>
     <Panel><h2 className="mb-4 font-semibold">Shipment specifications</h2><div className="grid grid-cols-2 gap-4 sm:grid-cols-4"><Info label="Shipping mode" value={shipment.shippingMode} /><Info label="Weight" value={`${shipment.weightKg} kg`} /><Info label="Packages" value={`${shipment.numberOfPackages}`} /><Info label="Container" value={shipment.containerType} /></div></Panel>
@@ -612,19 +794,29 @@ function Result({ calculation, onBack, onEnterManualRates }: { calculation: Calc
             <p className="text-sm text-slate-500">{tax.name}</p>
             <p className="mt-1 text-xl font-bold">{money(tax.amount)}</p>
             <p className="mt-1 text-xs text-slate-400">Rate: {tax.rate}%</p>
+            {tax.calculationBase && <p className="mt-1 text-xs text-slate-500">Base: {tax.calculationBase.replaceAll('_', ' ')}</p>}
+            {Number(tax.fixedAmount || 0) > 0 && <p className="mt-1 text-xs text-slate-500">Fixed charge: {money(Number(tax.fixedAmount))}</p>}
           </div>
         ))}
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Cost label="Subtotal" value={Number(calculation.taxBreakdown?.subtotal ?? costs.total - costs.taxes)} />
+        <Cost label="Customs value" value={Number(calculation.taxBreakdown?.customsValue ?? calculation.taxBreakdown?.subtotal ?? 0)} />
+        <Cost label="Freight" value={costs.freight} />
+        <Cost label="Insurance" value={costs.insurance} />
         <Cost label="Taxes" value={costs.taxes} />
         <Cost label="Final total" value={Number(calculation.taxBreakdown?.total ?? costs.total)} emphasized />
       </div>
       <div className="mt-6 rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-        <p className="font-medium text-white">Tax data source</p>
-        <p className="mt-2">{calculation.ruleSourceLabel || 'Unknown source'} · version {calculation.taxVersion || 'unknown'}</p>
+        <p className="font-medium text-white">Calculation basis</p>
+        <p className="mt-2">
+          {calculation.taxSource === 'default'
+            ? 'Estimated standard import rates'
+            : calculation.ruleSourceLabel || 'Tax rates used for this calculation'}
+        </p>
       </div>
     </Panel></div>
+    </section>
 
     <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <button onClick={saveCalculation} disabled={saving} className="rounded-lg bg-amber-400 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60">

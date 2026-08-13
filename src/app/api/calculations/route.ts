@@ -1,7 +1,9 @@
 import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
-import { adminAuth, firestore } from '@/lib/firebase-admin';
+import { getAdminAuth, getAdminFirestore } from '@/lib/firebase-admin';
+
+export const runtime = 'nodejs';
 
 const ALLOWED_SOURCES = new Set(['user', 'gemini', 'database', 'default']);
 
@@ -9,7 +11,7 @@ async function authenticatedUserId(request: Request) {
   const authorization = request.headers.get('authorization');
   if (!authorization?.startsWith('Bearer ')) return null;
   try {
-    const token = await adminAuth.verifyIdToken(authorization.slice('Bearer '.length).trim());
+    const token = await getAdminAuth().verifyIdToken(authorization.slice('Bearer '.length).trim());
     return token.uid;
   } catch {
     return null;
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
 
     const identity = JSON.stringify({ userId, input, taxBreakdown, totalAmount, taxRuleVersion, taxSource });
     const dedupeKey = crypto.createHash('sha256').update(identity).digest('hex');
+    const firestore = getAdminFirestore();
     const reference = firestore.collection('savedCalculations').doc(dedupeKey);
     const existing = await reference.get();
     if (existing.exists) {

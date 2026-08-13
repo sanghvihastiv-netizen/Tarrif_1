@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+
 const defaultHeadlines = [
   {
     title: 'Trade dynamics shifting in 2026',
@@ -91,12 +93,17 @@ async function fetchTavilyHeadlines() {
     const data = await response.json();
     const results = data.results || [];
 
-    return results.slice(0, 5).map((result: any, index: number) => ({
-      title: result.title || `Trade update ${index + 1}`,
-      source: result.source || result.url?.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] || 'Tavily',
-      category: inferCategory(result.title || ''),
-      url: result.url || defaultHeadlines[index % defaultHeadlines.length].url
-    }));
+    return results.slice(0, 5).map((item: unknown, index: number) => {
+      const result = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      const title = typeof result.title === 'string' ? result.title : `Trade update ${index + 1}`;
+      const url = typeof result.url === 'string' ? result.url : '';
+      return {
+        title,
+        source: typeof result.source === 'string' ? result.source : url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] || 'Tavily',
+        category: inferCategory(title),
+        url: url || defaultHeadlines[index % defaultHeadlines.length].url,
+      };
+    });
   } catch (error) {
     console.error('❌ Tavily request failed:', error);
     return defaultHeadlines;
@@ -163,12 +170,13 @@ Based on your knowledge of:
 
 Use realistic current data and trends. Make it feel like a live intelligence update.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': geminiApiKey,
       },
       body: JSON.stringify({
         contents: [{
@@ -179,6 +187,7 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
         generationConfig: {
           temperature: 0.7,
           maxOutputTokens: 800,
+          responseMimeType: 'application/json',
         }
       })
     });
@@ -196,14 +205,14 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
     console.log('📝 Response length:', text.length);
 
     // Extract JSON from the response
-    let jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     let parsedData;
     
     if (jsonMatch) {
       try {
         parsedData = JSON.parse(jsonMatch[0]);
         console.log('✅ Successfully parsed Gemini response');
-      } catch (e) {
+      } catch {
         console.error('❌ Failed to parse JSON, using fallback');
         parsedData = null;
       }
@@ -237,10 +246,15 @@ Use realistic current data and trends. Make it feel like a live intelligence upd
       nearshoringIndex: parsedData.nearshoringIndex || 2340,
       chokepointRisk: parsedData.chokepointRisk || 'MEDIUM',
       alertText: parsedData.alertText || 'Global trade monitoring active',
-      headlines: (parsedData.headlines?.slice(0, 5) || tavilyHeadlines).map((headline: any, index: number) => ({
-        ...headline,
-        url: headline.url || tavilyHeadlines[index]?.url || defaultHeadlines[index % defaultHeadlines.length].url
-      })),
+      headlines: (parsedData.headlines?.slice(0, 5) || tavilyHeadlines).map((item: unknown, index: number) => {
+        const headline = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return {
+          ...headline,
+          url: typeof headline.url === 'string' && headline.url
+            ? headline.url
+            : tavilyHeadlines[index]?.url || defaultHeadlines[index % defaultHeadlines.length].url,
+        };
+      }),
       summary: parsedData.summary || 'Global trade landscape showing mixed signals.',
       keyRisks: parsedData.keyRisks || ['Trade tensions', 'Supply chain disruptions'],
       opportunities: parsedData.opportunities || ['Nearshoring', 'Trade diversification'],
